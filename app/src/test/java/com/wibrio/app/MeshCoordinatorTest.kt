@@ -28,7 +28,7 @@ class MeshCoordinatorTest {
         val links = mutableSetOf<Set<String>>()
         val queue = ArrayDeque<Wire>()
         val captured = mutableListOf<Wire>()
-        val nodes = keys.mapValues { (name, key) -> MeshCoordinator(key.id, key, name, history.getValue(name), MutableStateFlow(NetworkStats()), { _, _ -> trustRemote }, {}, { true }, { time }) { next, frame ->
+        val nodes = keys.mapValues { (name, key) -> MeshCoordinator(key.id, key, name, history.getValue(name), MutableStateFlow(NetworkStats()), { _, _ -> trustRemote }, {}, { true }, TestMessageJournal(), { time }) { next, frame ->
             if (failOriginSends && name == "A" && frame.packet.type == PacketType.DATA) throw java.io.IOException("simulated radio send failure")
             val to = keys.entries.first { it.value.id == next }.key
             queue.add(Wire(name, to, PacketCodec.decode(PacketCodec.encode(frame))))

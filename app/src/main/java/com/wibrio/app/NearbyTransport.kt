@@ -3,6 +3,7 @@ package com.wibrio.app
 import android.content.Context
 import com.wibrio.mesh.DirectLinkListener
 import com.wibrio.mesh.DirectLinkTransport
+import com.wibrio.mesh.PayloadTransfers
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.*
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -16,7 +17,8 @@ import javax.inject.Singleton
 // Endpoint IDs belong only to this transport session, never to persistent identities.
 @Singleton class NearbyTransport @Inject constructor(@ApplicationContext context: Context) : DirectLinkTransport {
     private val client = Nearby.getConnectionsClient(context)
-    private var generation = 0
+    @Volatile private var generation = 0
+    private val transfers = PayloadTransfers()
     private var callback: ConnectionLifecycleCallback? = null
     private var payload: PayloadCallback? = null
     private var discovery: EndpointDiscoveryCallback? = null
@@ -33,7 +35,13 @@ import javax.inject.Singleton
                 }
                 listener.received(endpointId, bytes)
             }
-            override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) = Unit
+            override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) {
+                if (epoch != generation) return
+                when (update.status) {
+                    PayloadTransferUpdate.Status.SUCCESS -> transfers.complete(endpointId, update.payloadId, true)
+                    PayloadTransferUpdate.Status.FAILURE, PayloadTransferUpdate.Status.CANCELED -> transfers.complete(endpointId, update.payloadId, false)
+                }
+            }
         }
         callback = object : ConnectionLifecycleCallback() {
             override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
@@ -44,7 +52,7 @@ import javax.inject.Singleton
                 if (resolution.status.isSuccess) listener.connected(endpointId)
                 else listener.disconnected(endpointId, "Connection rejected or failed (${resolution.status.statusCode})")
             }
-            override fun onDisconnected(endpointId: String) { if (epoch == generation) listener.disconnected(endpointId, "Peer disconnected") }
+            override fun onDisconnected(endpointId: String) { if (epoch == generation) { transfers.disconnect(endpointId); listener.disconnected(endpointId, "Peer disconnected") } }
         }
         advertisedName = name
         discovery = object : EndpointDiscoveryCallback() {
@@ -62,12 +70,19 @@ import javax.inject.Singleton
     override suspend fun reject(endpoint: String) { client.rejectConnection(endpoint).boundedAwait() }
     override suspend fun send(endpoint: String, bytes: ByteArray) {
         require(bytes.size <= 16_384)
-        client.sendPayload(endpoint, Payload.fromBytes(bytes)).boundedAwait()
+        val outgoing = Payload.fromBytes(bytes)
+        val completed = transfers.register(endpoint, outgoing.id)
+        try {
+            client.sendPayload(endpoint, outgoing).boundedAwait()
+            try { withTimeout(10_000) { completed.await() } }
+            catch (timeout: TimeoutCancellationException) { throw java.io.IOException("Nearby payload completion timed out", timeout) }
+        } finally { transfers.forget(outgoing.id) }
     }
-    override fun disconnect(endpoint: String) { client.disconnectFromEndpoint(endpoint) }
+    override fun disconnect(endpoint: String) { transfers.disconnect(endpoint); client.disconnectFromEndpoint(endpoint) }
     override fun stopDiscovery() { client.stopAdvertising(); client.stopDiscovery() }
-    override fun stop() { generation++; stopDiscovery(); client.stopAllEndpoints(); callback = null; payload = null; discovery = null }
-    companion object { private const val SERVICE = "com.wibrio.app.mesh.v3" }
+    override fun stop() { generation++; transfers.stop(); stopDiscovery(); client.stopAllEndpoints(); callback = null; payload = null; discovery = null }
+    // Isolate pre-durable-ACK clients; all field-test phones must run 0.4.0 or newer.
+    companion object { private const val SERVICE = "com.wibrio.app.mesh.v4" }
 }
 
 private suspend fun <T> Task<T>.boundedAwait(): T = try {

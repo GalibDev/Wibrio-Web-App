@@ -20,13 +20,14 @@ import javax.inject.Singleton
 data class DiscoveredPeer(val endpoint: String, val name: String, val state: String = "Nearby")
 data class VerificationRequest(val endpoint: String, val name: String, val digits: String)
 data class DirectMessage(val id: String, val peerId: String, val text: String, val outgoing: Boolean, val timestamp: Long, val state: DeliveryState)
-data class NetworkStats(val sent: Int = 0, val received: Int = 0, val acks: Int = 0, val failures: Int = 0, val retries: Int = 0)
+data class NetworkStats(val sent: Int = 0, val received: Int = 0, val acks: Int = 0, val failures: Int = 0, val retries: Int = 0, val lastDeliveryLatencyMs: Long? = null, val deliveryLatencyTotalMs: Long = 0, val linkReplayDrops: Int = 0, val linkRejected: Int = 0)
 private data class Session(val localNonce: String = UUID.randomUUID().toString(), var remoteNonce: String? = null, var key: String? = null, var node: String? = null, var name: String = "", var accepted: Boolean = false, var verified: Boolean = false, var window: Long = 0, var received: Int = 0, var outgoingSequence: Long = 0, val replay: ReplayWindow = ReplayWindow(), var pendingProof: ByteArray? = null, val deferred: MutableList<ByteArray> = mutableListOf())
 
 @Singleton class DirectMeshRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val transport: DirectLinkTransport,
-    private val identity: DeviceIdentity
+    private val identity: DeviceIdentity,
+    private val journal: RoomMessageJournal
 ) : MeshRepository, DirectLinkListener {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
@@ -39,9 +40,43 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
     val stats = MutableStateFlow(NetworkStats())
     val localId = MutableStateFlow("")
     val searching = MutableStateFlow(false)
-    val relayEnabled = MutableStateFlow(true)
+    private val controls = context.getSharedPreferences("wibrio_mesh_controls", Context.MODE_PRIVATE)
+    val relayEnabled = MutableStateFlow(controls.getBoolean("relay", true))
+    fun configureRelay(enabled: Boolean) = launch(sessionBound = false) {
+        check(controls.edit().putBoolean("relay", enabled).commit()) { "Could not save relay preference" }
+        relayEnabled.value = enabled; recorder.event("relay", if (enabled) "Enabled" else "Disabled")
+    }
     val routes = MutableStateFlow<List<MeshRoute>>(emptyList())
     val routingMetrics = MutableStateFlow(RoutingMetrics())
+    private val diagnosticsPreferences = context.getSharedPreferences("wibrio_diagnostics", Context.MODE_PRIVATE)
+    private val recorder = NetworkDiagnostics { android.os.SystemClock.elapsedRealtime() }.apply { configure(diagnosticsPreferences.getBoolean("enabled", false)) }
+    val diagnostics = recorder.state
+    fun configureDiagnostics(enabled: Boolean) = launch(sessionBound = false) {
+        check(diagnosticsPreferences.edit().putBoolean("enabled", enabled).commit()) { "Could not save diagnostics preference" }
+        recorder.configure(enabled)
+        if (enabled) recorder.event("session", if (running) "Recording enabled during active session" else "Recording enabled; mesh inactive")
+        publish()
+    }
+    suspend fun diagnosticsReport(): ByteArray = mutex.withLock {
+        val peers = (status.value as? MeshStatus.Active)?.peers.orEmpty()
+        DiagnosticsReport.encode(mapOf(
+            "generatedAtUtc" to java.time.Instant.now().toString(), "appVersion" to "0.4.0", "localNode" to localId.value,
+            "manufacturer" to android.os.Build.MANUFACTURER, "model" to android.os.Build.MODEL, "androidApi" to android.os.Build.VERSION.SDK_INT,
+            "connectionState" to status.value.javaClass.simpleName, "foregroundSessionRequested" to running, "searching" to searching.value,
+            "relayEnabled" to relayEnabled.value, "peerCount" to peers.size, "directVerifiedPeers" to sessions.values.count { it.verified },
+            "endpoints" to org.json.JSONArray(nearby.value.map { JSONObject().put("endpoint", it.endpoint).put("state", it.state) }),
+            "permissions" to JSONObject(permissions().associateWith { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }),
+            "packetsSent" to stats.value.sent, "packetsReceived" to stats.value.received, "destinationAcks" to stats.value.acks,
+            "operationFailures" to stats.value.failures, "retries" to stats.value.retries,
+            "linkReplayDrops" to stats.value.linkReplayDrops, "linkRejectedPackets" to stats.value.linkRejected,
+            "lastDeliveryLatencyMs" to (stats.value.lastDeliveryLatencyMs ?: JSONObject.NULL),
+            "meanDeliveryLatencyMs" to (if (stats.value.acks == 0) JSONObject.NULL else stats.value.deliveryLatencyTotalMs / stats.value.acks),
+            "forwardingActions" to routingMetrics.value.forwarded, "duplicates" to routingMetrics.value.duplicates,
+            "rejectedRoutingPackets" to routingMetrics.value.rejected, "routeChanges" to routingMetrics.value.routeChanges,
+            "pendingMessages" to messages.value.count { it.outgoing && it.state in listOf(DeliveryState.QUEUED, DeliveryState.SENDING, DeliveryState.RELAYED) },
+            "notes" to "Counters are process/session observations; delivery latency includes queue/retry time. Recovery measures local route observations only. Radio type, RSSI and physical distance are not supplied by Nearby."
+        ), routes.value, recorder.state.value)
+    }
     private var coordinator: MeshCoordinator? = null
     private val remoteTrust = context.getSharedPreferences("wibrio_remote_fingerprints", Context.MODE_PRIVATE)
     private fun trusted(node: String, key: String): Boolean = sessions.values.any { it.verified && it.node == node && it.key == key } || remoteTrust.getString(node, null) == key || trust.getString(node, null) == key
@@ -57,11 +92,12 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
     private var localName = "Wibrio"
     private var running = false
     @Volatile private var epoch = 0
+    private var discoveryGeneration = 0
     private val trust = context.getSharedPreferences("wibrio_verified_peers", Context.MODE_PRIVATE)
-    init { launch { localId.value = identity.localNodeId().value } }
-    private fun launch(completed: () -> Unit = {}, block: suspend () -> Unit) { val submitted = epoch; scope.launch { try {
+    init { launch { localId.value = identity.localNodeId().value; val recovered = journal.load().recovered(System.currentTimeMillis()); journal.save(recovered); messages.value = recovered.messages } }
+    private fun launch(completed: () -> Unit = {}, sessionBound: Boolean = true, block: suspend () -> Unit) { val submitted = epoch; scope.launch { try {
         mutex.withLock {
-            if (submitted != epoch) return@withLock
+            if (sessionBound && submitted != epoch) return@withLock
             try { block() } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { error.value = failure.message?.take(180) ?: "Wireless operation failed"; stats.value = stats.value.copy(failures = stats.value.failures + 1) }
         }
@@ -91,13 +127,14 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
             require(GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS) { "Google Play services is missing or needs an update." }
             localId.value = identity.localNodeId().value
             coordinator = withContext(Dispatchers.IO) {
-                MeshCoordinator(localId.value, identity, localName, messages, stats, ::trusted, ::publish, { relayEnabled.value }) { nextHop, frame ->
+                MeshCoordinator(localId.value, identity, localName, messages, stats, ::trusted, ::publish, { relayEnabled.value }, journal) { nextHop, frame ->
                     val link = sessions.entries.firstOrNull { it.value.verified && it.value.node == nextHop } ?: error("Next hop disconnected")
                     try { sendPacket(link.key, JSONObject().put("type", "MESH").put("to", nextHop).put("nonce", link.value.remoteNonce).put("frame", DeviceIdentity.encode(PacketCodec.encode(frame)))) }
                     catch (failure: Exception) { transport.disconnect(link.key); throw failure }
-                }
+                }.also { it.restore() }
             }
             running = true; epoch++; searching.value = true; mutableStatus.value = MeshStatus.Discovering
+            recorder.event("session", "Starting Nearby P2P_CLUSTER; verification mandatory")
             transport.start(localName, this)
             val started = epoch
             discoveryWindow(started)
@@ -117,20 +154,22 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
         catch (failure: Exception) { reset(); mutableStatus.value = MeshStatus.Unavailable(failure.message?.take(180) ?: "Unable to start Nearby") }
     }
     override suspend fun stop() = mutex.withLock { reset() }
-    private fun discoveryWindow(generation: Int) { scope.launch {
+    private fun discoveryWindow(generation: Int) { val window = ++discoveryGeneration; scope.launch {
         delay(120_000)
-        mutex.withLock { if (running && epoch == generation) { transport.stopDiscovery(); searching.value = false; nearby.value = nearby.value.filter { sessions.containsKey(it.endpoint) }; publish() } }
+        mutex.withLock { if (running && epoch == generation && discoveryGeneration == window) { transport.stopDiscovery(); searching.value = false; availableEndpoints.clear(); nearby.value = nearby.value.filter { sessions.containsKey(it.endpoint) }; publish() } }
     } }
     fun shutdown() = launch { reset() }
     private fun reset() {
         running = false; epoch++; searching.value = false; runCatching { transport.stop() }; sessions.clear(); coordinator = null; routes.value = emptyList(); routingMetrics.value = RoutingMetrics(); availableEndpoints.clear(); nearby.value = emptyList(); verification.value = emptyList()
-        messages.value = messages.value.map { if (it.state in listOf(DeliveryState.QUEUED, DeliveryState.SENDING, DeliveryState.RELAYED)) it.copy(state = DeliveryState.FAILED) else it }
+        messages.value = messages.value.map { if (it.state in listOf(DeliveryState.QUEUED, DeliveryState.SENDING, DeliveryState.RELAYED)) it.copy(state = DeliveryState.QUEUED) else it }
         mutableStatus.value = MeshStatus.Inactive
+        recorder.resetSession()
     }
     private fun publish() {
         if (!running) return
         val peers = (coordinator?.peers().orEmpty() + sessions.values.filter { it.verified }.map { Peer(NodeId(it.node!!), it.name, true, 1) }).distinctBy { it.id }; routes.value = coordinator?.router?.routes().orEmpty(); routingMetrics.value = coordinator?.router?.metrics ?: RoutingMetrics()
         mutableStatus.value = if (peers.isEmpty() && searching.value) MeshStatus.Discovering else MeshStatus.Active(peers)
+        recorder.routes(routes.value)
     }
     fun connect(endpoint: String) = launch {
         require(running && nearby.value.any { it.endpoint == endpoint }) { "Device is no longer nearby. Restart discovery." }
@@ -150,12 +189,12 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
         } else { try { transport.reject(endpoint) } finally { remove(endpoint) } }
     }
     fun disconnectPeer(node: String) = launch { sessions.entries.firstOrNull { it.value.node == node }?.key?.let { transport.disconnect(it); remove(it) } }
-    private fun timeout(endpoint: String, generation: Int) { scope.launch {
+    private fun timeout(endpoint: String, generation: Int) { val expected = sessions[endpoint]; scope.launch {
         delay(45_000)
-        mutex.withLock { if (generation == epoch && sessions[endpoint]?.verified == false) { transport.disconnect(endpoint); remove(endpoint); error.value = "Connection verification timed out. Try again." } }
+        mutex.withLock { if (generation == epoch && sessions[endpoint] === expected && expected?.verified == false) { transport.disconnect(endpoint); remove(endpoint); error.value = "Connection verification timed out. Try again." } }
     } }
     override fun found(endpoint: String, name: String) = launch {
-        if (running && nearby.value.size < 64) {
+        if (running && searching.value && nearby.value.size < 64) {
             availableEndpoints.add(endpoint)
             if (nearby.value.none { it.endpoint == endpoint }) nearby.value += DiscoveredPeer(endpoint, name)
         }
@@ -174,6 +213,7 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
         sendPacket(endpoint, JSONObject().put("type", "HELLO").put("nonce", session.localNonce).put("name", localName).put("key", identity.publicKey()))
     }
     override fun disconnected(endpoint: String, reason: String) = launch {
+        recorder.event("disconnected", reason)
         val known = sessions.containsKey(endpoint)
         remove(endpoint)
         if (known && running) error.value = "$reason. Reconnect from People; confirm the code again."
@@ -234,11 +274,12 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
                 return@packet
             }
             require(body.getString("to") == localId.value && body.getString("nonce") == session.localNonce) { "Wrong recipient or expired session" }
-            if (!session.replay.accept(body.getLong("seq"))) return@packet
+            if (!session.replay.accept(body.getLong("seq"))) { stats.value = stats.value.copy(linkReplayDrops = stats.value.linkReplayDrops + 1); return@packet }
             if (type == "PROOF") {
                 require(body.getString("peerNonce") == session.remoteNonce && !session.verified) { "Invalid identity proof" }
                 check(trust.edit().putString(session.node, session.key).commit()) { "Could not save verified peer" }
                 session.verified = true
+                recorder.event("verified_link", "Peer ${session.node!!.take(12)} accepted numeric code and identity proof")
                 nearby.value = nearby.value.map { if (it.endpoint == endpoint) it.copy(name = session.name, state = "Connected") else it }
                 coordinator?.up(session.node!!)
                 publish()
@@ -247,10 +288,10 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
                 return@packet
             }
             require(session.verified) { "Identity handshake incomplete" }
-            require(type == "MESH") { "Unsupported direct protocol. All phones must use version 0.3.0." }
+            require(type == "MESH") { "Unsupported direct protocol. All phones must use version 0.4.0." }
             coordinator?.receive(session.node!!, PacketCodec.decode(DeviceIdentity.decode(body.getString("frame"))))
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (failure: Exception) { transport.disconnect(endpoint); remove(endpoint); throw IllegalArgumentException("Rejected packet: ${failure.message?.take(100)}", failure) }
+        catch (failure: Exception) { stats.value = stats.value.copy(linkRejected = stats.value.linkRejected + 1); recorder.event("rejected_link_packet", "Rejected malformed or unauthenticated link packet"); transport.disconnect(endpoint); remove(endpoint); throw IllegalArgumentException("Rejected packet: ${failure.message?.take(100)}", failure) }
     }
     fun send(node: String, text: String) = launch {
         checkNotNull(coordinator) { "Start the mesh first" }.send(node, text)

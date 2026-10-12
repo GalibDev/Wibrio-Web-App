@@ -56,7 +56,7 @@ import java.util.Locale
         }
         if (nodes.isEmpty()) Empty("Say hello, offline", "Connect and verify a device from People to begin.", Icons.AutoMirrored.Filled.Chat)
         Primary("Find people", people)
-        Text("Chat history and pending messages are session memory only. They are lost when the process ends.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("History and pending messages are stored encrypted on this device. Pending messages expire after 60 seconds; restart the mesh and verify links to resume.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -87,7 +87,7 @@ private val Mint = Color(0xFFE7F7F1)
         TextButton(onClick = stop, modifier = Modifier.fillMaxWidth()) { Text("Stop / reset network") }
         Text(when (status) {
             MeshStatus.Discovering -> "Discovering nearby devices…"
-            is MeshStatus.Active -> "${status.peers.size} verified direct peers · ${if (searching) "Discovering" else "Discovery stopped"}"
+            is MeshStatus.Active -> "${status.peers.size} reachable peers · ${if (searching) "Discovering" else "Discovery stopped"}"
             else -> "Discovery inactive · No connected devices"
         }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
