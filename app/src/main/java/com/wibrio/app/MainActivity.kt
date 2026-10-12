@@ -74,6 +74,9 @@ internal fun permissions(): Array<String> = buildList {
     val localId by model.localId.collectAsStateWithLifecycle()
     val stats by model.stats.collectAsStateWithLifecycle()
     val searching by model.searching.collectAsStateWithLifecycle()
+    val relayEnabled by model.relayEnabled.collectAsStateWithLifecycle()
+    val routes by model.routes.collectAsStateWithLifecycle()
+    val routing by model.routingMetrics.collectAsStateWithLifecycle()
     val scheme = if (profile.dark) darkColorScheme(primary = Color(0xFF7CB9FF), secondary = Cyan, background = Color(0xFF071226), surface = Color(0xFF101F36))
         else lightColorScheme(primary = Blue, secondary = Color(0xFF007D8C), background = Color.White, surface = Color.White, primaryContainer = Color(0xFFEDF2FF), onPrimaryContainer = Color(0xFF183565), surfaceVariant = Color(0xFFF0F4FA), onSurface = Color(0xFF10213B))
     MaterialTheme(colorScheme = scheme, shapes = Shapes(medium = RoundedCornerShape(14.dp), large = RoundedCornerShape(18.dp))) {
@@ -93,25 +96,29 @@ internal fun permissions(): Array<String> = buildList {
                 composable("Setup") { ProfileEditor(profile.name, "Make it yours", "Choose the name nearby people will see.") { model.saveName(it) { nav.navigate("Permissions") { popUpTo("Welcome") { inclusive = true } } } } }
                 composable("Permissions") { PermissionPage { nav.navigate("Home") { popUpTo("Permissions") { inclusive = true } } } }
                 composable("Home") { DashboardScreen(profile.name, status, messages, { model.selectedPeer.value = it; nav.navigate("Conversation") }) { nav.navigate(it) } }
-                composable("Start Mesh") { val preference by model.preference.collectAsStateWithLifecycle(); StartMeshScreen(preference, status, { model.preference.value = it }, { model.start() }, { model.stop() }, searching) }
+                composable("Start Mesh") { val preference by model.preference.collectAsStateWithLifecycle(); StartMeshScreen(preference, status, { model.preference.value = it }, { model.start() }, { model.stop() }, searching, relayEnabled, { model.relayEnabled.value = it }) }
                 composable("Nearby") { DirectPeopleScreen(nearby, status, searching, model::connect, { model.selectedPeer.value = it; nav.navigate("Conversation") }, { nav.navigate("Start Mesh") }) }
                 composable("Chats") { DirectInbox(messages, status, { model.selectedPeer.value = it; nav.navigate("Conversation") }, { nav.navigate("Nearby") }) }
-                composable("Conversation") { DirectConversation(selectedPeer, messages, status, model::send, model::disconnect) }
-                composable("Map") { NetworkMapScreen(profile.name, (status as? MeshStatus.Active)?.peers.orEmpty()) }
+                composable("Conversation") { DirectConversation(selectedPeer, messages, status, model::send, model::disconnect, model::approveRemote) }
+                composable("Map") { NetworkMapScreen(profile.name, (status as? MeshStatus.Active)?.peers.orEmpty(), routes) }
                 composable("Profile") { Page { Logo(80); Hero(profile.name, "This device belongs to you."); Action("Edit display name", "Saved locally on this device", Icons.Default.Edit) { nav.navigate("Edit profile") }; Text("Public-key fingerprint", fontWeight = FontWeight.Bold); Text(localId.chunked(4).joinToString(" "), style = MaterialTheme.typography.bodySmall); Info("Identity is protected by Android Keystore. QR verification is not available yet.") } }
                 composable("Edit profile") { ProfileEditor(profile.name, "Device profile", "Update your nearby display name.") { model.saveName(it) { nav.popBackStack() } } }
-                composable("Settings") { Page { Hero("Your preferences", "A quieter, more personal network."); Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text("Dark appearance", modifier = Modifier.weight(1f)); Switch(checked = profile.dark, onCheckedChange = model::dark) }; Action("Device profile", "Name and identity", Icons.Default.AccountCircle) { nav.navigate("Profile") }; Action("Permissions", "Manage wireless access", Icons.Default.Tune) { nav.navigate("Permissions") }; Action("Security & privacy", "Trust and local data", Icons.Default.Lock) { nav.navigate("Security") }; Action("Network diagnostics", "Transport and routing status", Icons.Default.Insights) { nav.navigate("Diagnostics") }; Text("Wibrio 0.2.0 • Direct offline messaging", style = MaterialTheme.typography.labelMedium) } }
-                composable("Security") { Page { Hero("Trust, by design", "You decide who gets close."); Info("Direct messages use a code-verified Nearby connection and signed device identities. Separate end-to-end encryption and multi-hop security are not implemented or independently reviewed."); Feature(Icons.Default.Storage, "Local preferences", "Display name and theme stay on this device. Android backup is disabled."); Info("Both users must compare and accept the verification code on every connection. No peer is accepted automatically.") } }
+                composable("Settings") { Page { Hero("Your preferences", "A quieter, more personal network."); Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text("Dark appearance", modifier = Modifier.weight(1f)); Switch(checked = profile.dark, onCheckedChange = model::dark) }; Action("Device profile", "Name and identity", Icons.Default.AccountCircle) { nav.navigate("Profile") }; Action("Permissions", "Manage wireless access", Icons.Default.Tune) { nav.navigate("Permissions") }; Action("Security & privacy", "Trust and local data", Icons.Default.Lock) { nav.navigate("Security") }; Action("Network diagnostics", "Transport and routing status", Icons.Default.Insights) { nav.navigate("Diagnostics") }; Text("Wibrio 0.3.0 • Experimental multi-hop mesh", style = MaterialTheme.typography.labelMedium) } }
+                composable("Security") { Page { Hero("Trust, by design", "You decide who gets close."); Info("Direct messages use a code-verified Nearby connection and signed device identities. Relayed text uses experimental Tink HPKE encryption with origin signatures. The complete protocol has not had independent security review."); Feature(Icons.Default.Storage, "Local preferences", "Display name and theme stay on this device. Android backup is disabled."); Info("Both users must compare and accept the verification code on every connection. No peer is accepted automatically.") } }
                 composable("Diagnostics") { Page {
-                    Hero("Network diagnostics", "Live direct connection state")
+                    Hero("Network diagnostics", "Live mesh routing state")
                     Feature(Icons.Default.Info, "Mesh", when (status) { is MeshStatus.Active -> "Active"; MeshStatus.Discovering -> "Discovering"; is MeshStatus.Unavailable -> "Unavailable"; else -> "Inactive" })
                     Feature(Icons.Default.Info, "Transport", "Nearby P2P_CLUSTER · Automatic radios")
                     Feature(Icons.Default.Info, "Local node", localId.ifBlank { "Initializing" })
-                    Feature(Icons.Default.Info, "Verified direct peers", ((status as? MeshStatus.Active)?.peers?.size ?: 0).toString())
+                    Feature(Icons.Default.Info, "Verified direct peers", ((status as? MeshStatus.Active)?.peers?.count { it.hops == 1 } ?: 0).toString())
                     Feature(Icons.Default.Info, "Packets sent / received", "${stats.sent} / ${stats.received}")
                     Feature(Icons.Default.Info, "Recipient ACKs / operation failures", "${stats.acks} / ${stats.failures}")
                     Feature(Icons.Default.Info, "Discovery", if (searching) "Active · 2 minute window" else "Stopped")
                     nearby.forEach { Feature(Icons.Default.Info, it.name, "${it.endpoint} · ${it.state}") }
+                    Feature(Icons.Default.Info, "Forwarded / duplicate / rejected", "${routing.forwarded} / ${routing.duplicates} / ${routing.rejected}")
+                    Feature(Icons.Default.Info, "Route changes / retries", "${routing.routeChanges} / ${stats.retries}")
+                    Feature(Icons.Default.Info, "Relay permission", if (relayEnabled) "Enabled" else "Disabled")
+                    routes.forEach { Feature(Icons.Default.Route, "Route ${it.destination.take(12)}", "${it.hops} hops via ${it.nextHop.take(12)}") }
                     PermissionSummary()
                 } }
                 composable("Files") { FilesScreen { nav.navigate(it) } }

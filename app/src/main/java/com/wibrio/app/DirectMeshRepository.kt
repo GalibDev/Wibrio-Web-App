@@ -20,7 +20,7 @@ import javax.inject.Singleton
 data class DiscoveredPeer(val endpoint: String, val name: String, val state: String = "Nearby")
 data class VerificationRequest(val endpoint: String, val name: String, val digits: String)
 data class DirectMessage(val id: String, val peerId: String, val text: String, val outgoing: Boolean, val timestamp: Long, val state: DeliveryState)
-data class NetworkStats(val sent: Int = 0, val received: Int = 0, val acks: Int = 0, val failures: Int = 0)
+data class NetworkStats(val sent: Int = 0, val received: Int = 0, val acks: Int = 0, val failures: Int = 0, val retries: Int = 0)
 private data class Session(val localNonce: String = UUID.randomUUID().toString(), var remoteNonce: String? = null, var key: String? = null, var node: String? = null, var name: String = "", var accepted: Boolean = false, var verified: Boolean = false, var window: Long = 0, var received: Int = 0, var outgoingSequence: Long = 0, val replay: ReplayWindow = ReplayWindow(), var pendingProof: ByteArray? = null, val deferred: MutableList<ByteArray> = mutableListOf())
 
 @Singleton class DirectMeshRepository @Inject constructor(
@@ -39,9 +39,20 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
     val stats = MutableStateFlow(NetworkStats())
     val localId = MutableStateFlow("")
     val searching = MutableStateFlow(false)
+    val relayEnabled = MutableStateFlow(true)
+    val routes = MutableStateFlow<List<MeshRoute>>(emptyList())
+    val routingMetrics = MutableStateFlow(RoutingMetrics())
+    private var coordinator: MeshCoordinator? = null
+    private val remoteTrust = context.getSharedPreferences("wibrio_remote_fingerprints", Context.MODE_PRIVATE)
+    private fun trusted(node: String, key: String): Boolean = sessions.values.any { it.verified && it.node == node && it.key == key } || remoteTrust.getString(node, null) == key || trust.getString(node, null) == key
+    fun approveRemote(node: String) = launch {
+        val peer = coordinator?.identity(node) ?: error("Peer identity expired")
+        require(remoteTrust.all.size < 128 || remoteTrust.contains(node)) { "Remote trust limit reached" }
+        check(remoteTrust.edit().putString(node, peer.signingKey).commit()) { "Could not save fingerprint" }
+        publish()
+    }
     private val sessions = mutableMapOf<String, Session>()
     private val availableEndpoints = mutableSetOf<String>()
-    private val seen = linkedSetOf<String>()
     private val pendingPackets = AtomicInteger(0)
     private var localName = "Wibrio"
     private var running = false
@@ -67,31 +78,58 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
     fun configureName(name: String) { localName = name.trim().take(40).ifBlank { "Wibrio" } }
     override suspend fun start(preference: TransportPreference) = mutex.withLock {
         if (running && searching.value) return@withLock
-        if (running) reset()
+        if (running) {
+            try {
+                require(permissions().all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) { "Grant wireless permissions first." }
+                transport.resumeDiscovery(); searching.value = true; discoveryWindow(epoch); publish()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { transport.stopDiscovery(); searching.value = false; error.value = failure.message?.take(180) ?: "Discovery could not resume" }
+            return@withLock
+        }
         try {
             require(permissions().all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) { "Grant wireless permissions in Settings → Permissions first." }
             require(GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS) { "Google Play services is missing or needs an update." }
             localId.value = identity.localNodeId().value
+            coordinator = withContext(Dispatchers.IO) {
+                MeshCoordinator(localId.value, identity, localName, messages, stats, ::trusted, ::publish, { relayEnabled.value }) { nextHop, frame ->
+                    val link = sessions.entries.firstOrNull { it.value.verified && it.value.node == nextHop } ?: error("Next hop disconnected")
+                    try { sendPacket(link.key, JSONObject().put("type", "MESH").put("to", nextHop).put("nonce", link.value.remoteNonce).put("frame", DeviceIdentity.encode(PacketCodec.encode(frame)))) }
+                    catch (failure: Exception) { transport.disconnect(link.key); throw failure }
+                }
+            }
             running = true; epoch++; searching.value = true; mutableStatus.value = MeshStatus.Discovering
             transport.start(localName, this)
             val started = epoch
+            discoveryWindow(started)
             scope.launch {
-                delay(120_000)
-                mutex.withLock { if (running && epoch == started) { transport.stopDiscovery(); searching.value = false; nearby.value = nearby.value.filter { sessions.containsKey(it.endpoint) }; publish() } }
+                val deadline = android.os.SystemClock.elapsedRealtime() + 30 * 60_000L
+                while (isActive) {
+                    delay(5000)
+                    mutex.withLock {
+                        if (!running || epoch != started) return@launch
+                        if (android.os.SystemClock.elapsedRealtime() >= deadline) { reset(); error.value = "Mesh session ended after 30 minutes. Restart when needed."; return@launch }
+                        try { coordinator?.tick() } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (failure: Exception) { error.value = failure.message?.take(180) ?: "Mesh maintenance failed" }
+                    }
+                }
             }
         } catch (cancelled: CancellationException) { reset(); throw cancelled }
         catch (failure: Exception) { reset(); mutableStatus.value = MeshStatus.Unavailable(failure.message?.take(180) ?: "Unable to start Nearby") }
     }
     override suspend fun stop() = mutex.withLock { reset() }
+    private fun discoveryWindow(generation: Int) { scope.launch {
+        delay(120_000)
+        mutex.withLock { if (running && epoch == generation) { transport.stopDiscovery(); searching.value = false; nearby.value = nearby.value.filter { sessions.containsKey(it.endpoint) }; publish() } }
+    } }
     fun shutdown() = launch { reset() }
     private fun reset() {
-        running = false; epoch++; searching.value = false; runCatching { transport.stop() }; sessions.clear(); availableEndpoints.clear(); nearby.value = emptyList(); verification.value = emptyList()
-        messages.value = messages.value.map { if (it.state == DeliveryState.SENDING) it.copy(state = DeliveryState.FAILED) else it }
+        running = false; epoch++; searching.value = false; runCatching { transport.stop() }; sessions.clear(); coordinator = null; routes.value = emptyList(); routingMetrics.value = RoutingMetrics(); availableEndpoints.clear(); nearby.value = emptyList(); verification.value = emptyList()
+        messages.value = messages.value.map { if (it.state in listOf(DeliveryState.QUEUED, DeliveryState.SENDING, DeliveryState.RELAYED)) it.copy(state = DeliveryState.FAILED) else it }
         mutableStatus.value = MeshStatus.Inactive
     }
     private fun publish() {
         if (!running) return
-        val peers = sessions.values.filter { it.verified }.map { Peer(NodeId(it.node!!), it.name, true, 1) }
+        val peers = (coordinator?.peers().orEmpty() + sessions.values.filter { it.verified }.map { Peer(NodeId(it.node!!), it.name, true, 1) }).distinctBy { it.id }; routes.value = coordinator?.router?.routes().orEmpty(); routingMetrics.value = coordinator?.router?.metrics ?: RoutingMetrics()
         mutableStatus.value = if (peers.isEmpty() && searching.value) MeshStatus.Discovering else MeshStatus.Active(peers)
     }
     fun connect(endpoint: String) = launch {
@@ -140,11 +178,11 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
         remove(endpoint)
         if (known && running) error.value = "$reason. Reconnect from People; confirm the code again."
     }
-    private fun remove(endpoint: String) {
+    private suspend fun remove(endpoint: String) {
         val node = sessions.remove(endpoint)?.node
         verification.value = verification.value.filterNot { it.endpoint == endpoint }
         nearby.value = if (availableEndpoints.contains(endpoint) && searching.value) nearby.value.map { if (it.endpoint == endpoint) it.copy(state = "Nearby") else it } else nearby.value.filterNot { it.endpoint == endpoint }
-        messages.value = messages.value.map { if (it.peerId == node && it.state == DeliveryState.SENDING) it.copy(state = DeliveryState.FAILED) else it }
+        if (node != null) coordinator?.down(node)
         publish()
     }
     private suspend fun sendPacket(endpoint: String, body: JSONObject) {
@@ -174,7 +212,7 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
                 session.pendingProof = bytes
                 return@packet
             }
-            if ((type == "DATA" || type == "ACK") && !session.verified) {
+            if ((type == "MESH") && !session.verified) {
                 require(session.deferred.size < 8) { "Too many packets before identity verification" }
                 session.deferred += bytes
                 return@packet
@@ -202,39 +240,20 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
                 check(trust.edit().putString(session.node, session.key).commit()) { "Could not save verified peer" }
                 session.verified = true
                 nearby.value = nearby.value.map { if (it.endpoint == endpoint) it.copy(name = session.name, state = "Connected") else it }
+                coordinator?.up(session.node!!)
                 publish()
                 val deferred = session.deferred.toList(); session.deferred.clear()
                 deferred.forEach { received(endpoint, it) }
                 return@packet
             }
             require(session.verified) { "Identity handshake incomplete" }
-            val id = body.getString("id"); require(UUID.fromString(id).toString() == id)
-            when (type) {
-                "DATA" -> {
-                    val text = body.getString("text"); require(text.isNotBlank() && text.toByteArray().size <= 4096)
-                    val dedup = "${session.node}:$id"
-                    if (seen.add(dedup)) {
-                        if (seen.size > 1024) seen.remove(seen.first())
-                        messages.value = (messages.value + DirectMessage(id, session.node!!, text, false, System.currentTimeMillis(), DeliveryState.DELIVERED)).takeLast(500)
-                    }
-                    sendPacket(endpoint, JSONObject().put("type", "ACK").put("to", session.node).put("nonce", session.remoteNonce).put("id", id))
-                }
-                "ACK" -> {
-                    val pending = messages.value.any { it.id == id && it.outgoing && it.peerId == session.node && it.state in listOf(DeliveryState.SENDING, DeliveryState.FAILED) }
-                    if (pending) { messages.value = messages.value.map { if (it.id == id && it.peerId == session.node && it.outgoing) it.copy(state = DeliveryState.DELIVERED) else it }; stats.value = stats.value.copy(acks = stats.value.acks + 1) }
-                }
-                else -> error("Unknown packet type")
-            }
+            require(type == "MESH") { "Unsupported direct protocol. All phones must use version 0.3.0." }
+            coordinator?.receive(session.node!!, PacketCodec.decode(DeviceIdentity.decode(body.getString("frame"))))
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { transport.disconnect(endpoint); remove(endpoint); throw IllegalArgumentException("Rejected packet: ${failure.message?.take(100)}", failure) }
     }
     fun send(node: String, text: String) = launch {
-        require(text.isNotBlank() && text.toByteArray().size <= 4096) { "Message must be 1–4096 UTF-8 bytes" }
-        val link = sessions.entries.firstOrNull { it.value.node == node && it.value.verified } ?: error("Peer is disconnected. Reconnect first.")
-        val id = UUID.randomUUID().toString()
-        messages.value = (messages.value + DirectMessage(id, node, text, true, System.currentTimeMillis(), DeliveryState.SENDING)).takeLast(500)
-        try { sendPacket(link.key, JSONObject().put("type", "DATA").put("to", node).put("nonce", link.value.remoteNonce).put("id", id).put("text", text)) }
-        catch (failure: Exception) { messages.value = messages.value.map { if (it.id == id) it.copy(state = DeliveryState.FAILED) else it }; throw failure }
-        scope.launch { delay(20_000); mutex.withLock { messages.value = messages.value.map { if (it.id == id && it.state == DeliveryState.SENDING) it.copy(state = DeliveryState.FAILED) else it } } }
+        checkNotNull(coordinator) { "Start the mesh first" }.send(node, text)
+        publish()
     }
 }

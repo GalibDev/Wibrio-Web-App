@@ -17,7 +17,7 @@ class RoutingEngineTest {
         val links = mutableSetOf<Set<String>>()
         val queue = ArrayDeque<Pair<String, RoutingAction>>()
         val delivered = mutableListOf<Pair<String, MeshPacket>>()
-        fun node(id: String) { nodes[id] = RoutingEngine(id, "key-$id", auth) { time } }
+        fun node(id: String) { nodes[id] = RoutingEngine(id, "key-$id", auth, now = { time }) }
         fun connect(a: String, b: String) { links += setOf(a, b); nodes.getValue(a).neighborUp(b); nodes.getValue(b).neighborUp(a) }
         fun submit(from: String, actions: List<RoutingAction>) { actions.forEach { queue.add(from to it) } }
         fun cut(a: String, b: String) { links -= setOf(a, b); submit(a, nodes.getValue(a).neighborDown(b)); submit(b, nodes.getValue(b).neighborDown(a)); drain() }
@@ -94,5 +94,21 @@ class RoutingEngineTest {
         val bytes = PacketCodec.encode(frame)
         assertEquals(frame.packet.id, PacketCodec.decode(bytes).packet.id)
         listOf(ByteArray(9001), bytes.copyOf(3), bytes + byteArrayOf(0)).forEach { assertTrue(runCatching { PacketCodec.decode(it) }.isFailure) }
+    }
+    @Test fun duplicateIdsFromDifferentSignedOriginsDoNotSuppressEachOther() {
+        val n = Network(); listOf("A", "B", "C").forEach(n::node); n.connect("A", "B"); n.connect("C", "B")
+        val a = n.nodes.getValue("A").create(PacketType.DATA, "B", byteArrayOf(1))
+        val c = auth.seal(n.nodes.getValue("C").create(PacketType.DATA, "B", byteArrayOf(2)).copy(id = a.id))
+        assertEquals(1, n.nodes.getValue("B").receive("A", RoutedFrame(a, listOf("A"))).size)
+        assertEquals(1, n.nodes.getValue("B").receive("C", RoutedFrame(c, listOf("C"))).size)
+    }
+    @Test fun relayOptOutPreventsForwardingButAllowsLocalDelivery() {
+        val a = RoutingEngine("A", "key-A", auth, { 1000 })
+        val b = RoutingEngine("B", "key-B", auth, { 1000 }, { false })
+        a.neighborUp("B"); b.neighborUp("A"); b.neighborUp("C")
+        val remote = a.create(PacketType.DATA, "C", byteArrayOf(1))
+        assertTrue(b.receive("A", RoutedFrame(remote, listOf("A"))).isEmpty())
+        val local = a.create(PacketType.DATA, "B", byteArrayOf(1))
+        assertEquals(1, b.receive("A", RoutedFrame(local, listOf("A"))).filterIsInstance<RoutingAction.Deliver>().size)
     }
 }

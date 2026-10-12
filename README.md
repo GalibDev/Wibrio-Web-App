@@ -1,6 +1,6 @@
 # Wibrio
 
-Native Android offline mesh communication project. **Phase 2 direct-link implementation; physical-device validation pending.**
+Native Android offline mesh communication project. **Phase 3 experimental multi-hop implementation; physical-device validation pending.**
 
 ## Open and build
 
@@ -10,7 +10,7 @@ Open this directory in Android Studio. Use JDK 17 or newer, Android SDK 36 and t
 .\gradlew.bat :app:assembleDebug
 ```
 
-Package: `com.wibrio.app`. Version 0.2.0. Minimum Android 8 / API 26; target API 36. Google Play services is required for Nearby networking.
+Package: `com.wibrio.app`. Version 0.3.0. Minimum Android 8 / API 26; target API 36. Google Play services is required for Nearby networking.
 
 ## Current capabilities
 
@@ -24,7 +24,9 @@ Package: `com.wibrio.app`. Version 0.2.0. Minimum Android 8 / API 26; target API
 
 Phase 2 adds real Nearby P2P_CLUSTER advertising/discovery, explicit numeric-code confirmation on both phones, Android Keystore P-256 identity, signed challenge/proof handshake, direct text exchange and signed final-recipient ACKs. People/inbox/conversation/map/diagnostics now reflect actual connection and traffic state. Disconnecting disables sending; reconnecting always requires user verification. No demo peers or fabricated delivery status are used.
 
-Discovery is bounded to two minutes. Connections and message history are foreground, best-effort session state; history is capped at 500 messages and lost on process termination. There is no persistent offline queue, automatic retransmission, guaranteed background/reboot recovery, multi-hop routing, QR, application E2EE, groups, files or WebRTC yet. See [security limits](docs/PHASE2_SECURITY.md).
+Phase 3 adds transport-independent bounded flooding, cached/alternative routes, link-down invalidation, route expiry, hop limits, multi-hop forwarding and an explicit relay switch. Relayed peer identities require fingerprint approval. Text is encrypted to the recipient using Tink HPKE and origin-signed; only a signed final-recipient ACK marks delivery. Bounded origin queues retry pending messages over recovered routes without duplicate text. See [protocol and security limits](docs/PHASE3.md).
+
+Discovery is bounded to two minutes and can resume without disconnecting existing links. Mesh sessions end after 30 minutes. History (500 rows) and pending messages (32, up to 60 seconds) are volatile; no durable store-and-forward, encrypted database, guaranteed background/reboot recovery, key management UI, groups, files or WebRTC exists. The complete protocol has not had independent security review.
 
 ## Design status
 
@@ -32,8 +34,8 @@ Figma connector access was denied for the original file and shared copy. The own
 
 ## Validation
 
-Android Studio/emulator/physical-device testing is intentionally left to the owner. Follow the [two-phone Phase 2 guide](docs/PHASE2_TESTING.md); the [Phase 1 UI checklist](docs/MANUAL_TESTING.md) is historical. JVM signature/identity and replay-window tests are included. Build/test results are tracked in [development status](docs/STATUS.md). Compilation and these tests do not prove working wireless behavior.
+Android Studio/emulator/physical-device testing is intentionally left to the owner. Follow the [four/five-phone Phase 3 guide](docs/PHASE3_TESTING.md). JVM tests include deterministic topology/recovery, real signed/encrypted coordinator exchange and replay/security cases. Compilation and simulator tests do not prove Android radio behavior. Earlier milestone guides are historical.
 
 ## Next milestone
 
-First validate Phase 2 on two physical phones without internet and fix any transport/device-specific failures. Then Phase 3: transport-independent multi-hop packets, bounded forwarding and deterministic topology/recovery tests. Persistent encrypted messaging and production security review remain required before release.
+Validate direct and multi-hop messaging on physical phones without internet, then fix device-specific failures. Phase 4 adds persistent encrypted storage, durable queues/receipts, identity/trust management, reliability hardening and security review.

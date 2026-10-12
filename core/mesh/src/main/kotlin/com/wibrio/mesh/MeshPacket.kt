@@ -9,6 +9,10 @@ interface PacketAuthenticator {
     fun seal(packet: MeshPacket): MeshPacket
     fun verify(packet: MeshPacket): Boolean
 }
+interface PacketSigningIdentity {
+    fun publicKey(): String
+    fun sign(bytes: ByteArray): String
+}
 
 /** Canonical binary origin-signed body, with separately bounded relay path metadata. */
 object PacketCodec {

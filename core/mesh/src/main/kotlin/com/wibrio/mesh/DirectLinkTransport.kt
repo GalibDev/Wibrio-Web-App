@@ -10,6 +10,7 @@ interface DirectLinkListener {
 }
 interface DirectLinkTransport {
     suspend fun start(name: String, listener: DirectLinkListener)
+    suspend fun resumeDiscovery()
     suspend fun request(endpoint: String, name: String)
     suspend fun accept(endpoint: String)
     suspend fun reject(endpoint: String)

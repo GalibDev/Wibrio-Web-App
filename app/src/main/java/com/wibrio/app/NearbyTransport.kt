@@ -19,6 +19,8 @@ import javax.inject.Singleton
     private var generation = 0
     private var callback: ConnectionLifecycleCallback? = null
     private var payload: PayloadCallback? = null
+    private var discovery: EndpointDiscoveryCallback? = null
+    private var advertisedName = "Wibrio"
     override suspend fun start(name: String, listener: DirectLinkListener) {
         stop()
         val epoch = generation
@@ -44,11 +46,16 @@ import javax.inject.Singleton
             }
             override fun onDisconnected(endpointId: String) { if (epoch == generation) listener.disconnected(endpointId, "Peer disconnected") }
         }
-        client.startAdvertising(name, SERVICE, callback!!, AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()).boundedAwait()
-        client.startDiscovery(SERVICE, object : EndpointDiscoveryCallback() {
+        advertisedName = name
+        discovery = object : EndpointDiscoveryCallback() {
             override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) { if (epoch == generation) listener.found(endpointId, info.endpointName.take(40)) }
             override fun onEndpointLost(endpointId: String) { if (epoch == generation) listener.lost(endpointId) }
-        }, DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()).boundedAwait()
+        }
+        resumeDiscovery()
+    }
+    override suspend fun resumeDiscovery() {
+        client.startAdvertising(advertisedName, SERVICE, checkNotNull(callback), AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()).boundedAwait()
+        client.startDiscovery(SERVICE, checkNotNull(discovery), DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()).boundedAwait()
     }
     override suspend fun request(endpoint: String, name: String) { client.requestConnection(name, endpoint, checkNotNull(callback)).boundedAwait() }
     override suspend fun accept(endpoint: String) { client.acceptConnection(endpoint, checkNotNull(payload)).boundedAwait() }
@@ -59,8 +66,8 @@ import javax.inject.Singleton
     }
     override fun disconnect(endpoint: String) { client.disconnectFromEndpoint(endpoint) }
     override fun stopDiscovery() { client.stopAdvertising(); client.stopDiscovery() }
-    override fun stop() { generation++; stopDiscovery(); client.stopAllEndpoints(); callback = null; payload = null }
-    companion object { private const val SERVICE = "com.wibrio.app.direct.v1" }
+    override fun stop() { generation++; stopDiscovery(); client.stopAllEndpoints(); callback = null; payload = null; discovery = null }
+    companion object { private const val SERVICE = "com.wibrio.app.mesh.v3" }
 }
 
 private suspend fun <T> Task<T>.boundedAwait(): T = try {

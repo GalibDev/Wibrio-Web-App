@@ -32,6 +32,10 @@ class ProfileStore @Inject constructor(@param:ApplicationContext private val con
     val stats = mesh.stats
     val localId = mesh.localId
     val searching = mesh.searching
+    val relayEnabled = mesh.relayEnabled
+    val routes = mesh.routes
+    val routingMetrics = mesh.routingMetrics
+    fun approveRemote(node: String) { mesh.approveRemote(node) }
     val selectedPeer = MutableStateFlow<String?>(null)
     fun connect(endpoint: String) { mesh.connect(endpoint) }
     fun confirm(endpoint: String, accepted: Boolean) { mesh.confirm(endpoint, accepted) }

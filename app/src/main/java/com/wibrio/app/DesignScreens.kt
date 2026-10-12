@@ -50,7 +50,7 @@ private val Mint = Color(0xFFE7F7F1)
     }
 }
 
-@Composable internal fun StartMeshScreen(preference: TransportPreference, status: MeshStatus, select: (TransportPreference) -> Unit, start: () -> Unit, stop: () -> Unit, searching: Boolean = false) {
+@Composable internal fun StartMeshScreen(preference: TransportPreference, status: MeshStatus, select: (TransportPreference) -> Unit, start: () -> Unit, stop: () -> Unit, searching: Boolean = false, relay: Boolean = true, setRelay: (Boolean) -> Unit = {}) {
     Page {
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("Welcome to", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -78,8 +78,12 @@ private val Mint = Color(0xFFE7F7F1)
         }
         Text("Radio selection depends on device and transport support.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         PermissionSummary()
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) { Text("Relay nearby traffic", fontWeight = FontWeight.SemiBold); Text("Forward encrypted messages for other nodes", style = MaterialTheme.typography.bodySmall) }
+            Switch(checked = relay, onCheckedChange = setRelay)
+        }
         if (status is MeshStatus.Unavailable) Info(status.reason)
-        Primary(if (searching) "Discovery is running" else if (status is MeshStatus.Active) "Restart discovery session" else "Start Mesh Network", start)
+        Primary(if (searching) "Discovery is running" else if (status is MeshStatus.Active) "Resume discovery" else "Start Mesh Network", start)
         TextButton(onClick = stop, modifier = Modifier.fillMaxWidth()) { Text("Stop / reset network") }
         Text(when (status) {
             MeshStatus.Discovering -> "Discovering nearby devices…"
@@ -201,21 +205,24 @@ private val Mint = Color(0xFFE7F7F1)
     category?.let { selection -> AlertDialog(onDismissRequest = { category = null }, title = { Text(selection) }, text = { Text("File sharing isn't available yet. No file has been selected or sent.") }, confirmButton = { TextButton(onClick = { category = null }) { Text("Got it") } }) }
 }
 
-@Composable internal fun NetworkMapScreen(name: String, peers: List<Peer> = emptyList()) {
+@Composable internal fun NetworkMapScreen(name: String, peers: List<Peer> = emptyList(), routes: List<com.wibrio.mesh.MeshRoute> = emptyList()) {
     Page {
-        SectionLabel("${peers.size} devices reachable", "Only verified direct connections appear here")
+        SectionLabel("${peers.size} devices reachable", "Direct links and observed multi-hop routes")
         Box(Modifier.fillMaxWidth().height(320.dp), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(Modifier.size(88.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = .07f), CircleShape), contentAlignment = Alignment.Center) {
                     Box(Modifier.size(64.dp).background(MeshBlue, CircleShape), contentAlignment = Alignment.Center) { Text("You", color = Color.White, fontWeight = FontWeight.Bold) }
                 }
                 Text(name.ifBlank { "This device" }, style = MaterialTheme.typography.titleSmall)
-                Text(if (peers.isEmpty()) "No active links" else "${peers.size} direct links", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${peers.count { it.hops == 1 }} direct links", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        peers.forEach { Feature(Icons.Default.Hub, it.displayName, "This device ↔ ${it.displayName} · Direct · 1 hop") }
+        peers.forEach { peer ->
+            val route = routes.firstOrNull { it.destination == peer.id.value }
+            Feature(Icons.Default.Hub, peer.displayName, if (peer.hops == 1) "Confirmed direct link · 1 hop" else "${peer.hops} observed hops · via ${route?.nextHop?.take(12) ?: "unknown"}")
+        }
         if (peers.isEmpty()) Info("No active links. Verified direct peers appear after connection.")
-        Text("Multi-hop routes are not available in Phase 2.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Remote route paths are relay reports, not independently measured physical links.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

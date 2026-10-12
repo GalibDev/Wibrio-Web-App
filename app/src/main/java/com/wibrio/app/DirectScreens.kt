@@ -27,8 +27,8 @@ import java.util.Locale
     val connected = (status as? MeshStatus.Active)?.peers.orEmpty()
     Page {
         OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Search nearby people") }, leadingIcon = { Icon(Icons.Default.Search, null) })
-        SectionLabel("Connected · ${connected.size}", if (searching) "Discovering nearby devices…" else "Discovery stopped")
-        connected.filter { it.displayName.contains(query, true) }.forEach { peer -> Action(peer.displayName, "Verified this session · Direct", Icons.AutoMirrored.Filled.Chat) { open(peer.id.value) } }
+        SectionLabel("Reachable · ${connected.size}", if (searching) "Discovering nearby devices…" else "Discovery stopped")
+        connected.filter { it.displayName.contains(query, true) }.forEach { peer -> Action(peer.displayName, "${if (peer.hops == 1) "Direct" else "${peer.hops} hops"} · ${if (peer.verified) "Fingerprint verified" else "Verify fingerprint before chatting"}", Icons.AutoMirrored.Filled.Chat) { open(peer.id.value) } }
         SectionLabel("Nearby devices")
         found.filter { it.state != "Connected" && it.name.contains(query, true) }.forEach { peer ->
             Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -56,21 +56,22 @@ import java.util.Locale
         }
         if (nodes.isEmpty()) Empty("Say hello, offline", "Connect and verify a device from People to begin.", Icons.AutoMirrored.Filled.Chat)
         Primary("Find people", people)
-        Text("Phase 2 chat history is session memory only. It is lost when the process ends.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Chat history and pending messages are session memory only. They are lost when the process ends.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
-@Composable internal fun DirectConversation(node: String?, messages: List<DirectMessage>, status: MeshStatus, send: (String) -> Unit, disconnect: (String) -> Unit) {
+@Composable internal fun DirectConversation(node: String?, messages: List<DirectMessage>, status: MeshStatus, send: (String) -> Unit, disconnect: (String) -> Unit, approve: (String) -> Unit) {
     val peer = (status as? MeshStatus.Active)?.peers?.firstOrNull { it.id.value == node }
     val history = messages.filter { it.peerId == node }
     var draft by rememberSaveable(node) { mutableStateOf("") }
+    var verifying by rememberSaveable(node) { mutableStateOf(false) }
     val scroll = rememberLazyListState()
     LaunchedEffect(history.size) { if (history.isNotEmpty()) scroll.animateScrollToItem(history.lastIndex) }
     Column(Modifier.fillMaxSize().imePadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(12.dp)) {
             Column(Modifier.fillMaxWidth().padding(12.dp)) {
                 Text(peer?.displayName ?: "Disconnected", fontWeight = FontWeight.Bold)
-                Text(if (peer != null) "Direct · Verified session · ${peer.id.value.take(12)}" else "Temporarily unreachable · reconnect from People", style = MaterialTheme.typography.bodySmall)
+                Text(if (peer != null) "${if (peer.hops == 1) "Direct" else "${peer.hops} hops"} · ${if (peer.verified) "Fingerprint verified" else "Unverified remote identity"}" else "Temporarily unreachable · waiting for route recovery", style = MaterialTheme.typography.bodySmall)
             }
         }
         LazyColumn(state = scroll, modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
@@ -83,13 +84,18 @@ import java.util.Locale
                 }
             }
         }
-        if (peer != null) TextButton(onClick = { disconnect(peer.id.value) }) { Text("Disconnect peer") }
+        if (peer != null && !peer.verified) Button(onClick = { verifying = true }) { Text("Verify remote fingerprint") }
+        if (peer?.hops == 1) TextButton(onClick = { disconnect(peer.id.value) }) { Text("Disconnect direct peer") }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(draft, { if (it.toByteArray().size <= 4096) draft = it }, enabled = peer != null, modifier = Modifier.weight(1f), placeholder = { Text("Write a message") }, maxLines = 4, shape = RoundedCornerShape(22.dp))
-            IconButton(onClick = { send(draft); draft = "" }, enabled = peer != null && draft.isNotBlank()) { Icon(Icons.AutoMirrored.Filled.Send, "Send message") }
+            OutlinedTextField(draft, { if (it.toByteArray().size <= 3072) draft = it }, enabled = peer?.verified == true, modifier = Modifier.weight(1f), placeholder = { Text("Write a message") }, maxLines = 4, shape = RoundedCornerShape(22.dp))
+            IconButton(onClick = { send(draft); draft = "" }, enabled = peer?.verified == true && draft.isNotBlank()) { Icon(Icons.AutoMirrored.Filled.Send, "Send message") }
         }
         Spacer(Modifier.height(4.dp))
     }
+    if (verifying && peer != null) AlertDialog(onDismissRequest = { verifying = false }, title = { Text("Verify ${peer.displayName}") }, text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Compare this fingerprint with the other person's Profile screen through a trusted channel. Both people must verify before relayed chat. A relay's display name does not establish trust.")
+        Text(peer.id.value.chunked(4).joinToString(" "), style = MaterialTheme.typography.bodyMedium)
+    } }, confirmButton = { TextButton(onClick = { approve(peer.id.value); verifying = false }) { Text("Fingerprint matches") } }, dismissButton = { TextButton(onClick = { verifying = false }) { Text("Cancel") } })
 }
 
 @Composable internal fun VerificationDialog(request: VerificationRequest, confirm: (Boolean) -> Unit) {

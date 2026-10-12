@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.wibrio.app"
     compileSdk = 36
-    defaultConfig { applicationId = "com.wibrio.app"; minSdk = 26; targetSdk = 36; versionCode = 2; versionName = "0.2.0" }
+    defaultConfig { applicationId = "com.wibrio.app"; minSdk = 26; targetSdk = 36; versionCode = 3; versionName = "0.3.0" }
     buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     buildTypes { release { isMinifyEnabled = false; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt")) } }
@@ -16,6 +16,7 @@ android {
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 dependencies {
     implementation(project(":core:mesh"))
+    implementation("com.google.crypto.tink:tink-android:1.18.0")
     // 19.5.1 ships Kotlin 2.4 metadata, incompatible with this project's Kotlin 2.2.
     implementation("com.google.android.gms:play-services-nearby:19.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
@@ -32,4 +33,5 @@ dependencies {
     implementation("com.google.dagger:hilt-android:2.57.2")
     ksp("com.google.dagger:hilt-compiler:2.57.2")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

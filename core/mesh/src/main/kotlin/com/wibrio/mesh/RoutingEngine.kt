@@ -10,7 +10,7 @@ sealed interface RoutingAction {
 data class RoutingMetrics(val forwarded: Long = 0, val duplicates: Long = 0, val rejected: Long = 0, val routeChanges: Long = 0)
 
 /** Single-owner deterministic engine. No Android, radio, clock, thread or crypto provider dependency. */
-class RoutingEngine(private val local: String, private val key: String, private val auth: PacketAuthenticator, private val now: () -> Long) {
+class RoutingEngine(private val local: String, private val key: String, private val auth: PacketAuthenticator, private val now: () -> Long, private val relayAllowed: () -> Boolean = { true }) {
     private val neighbors = linkedSetOf<String>()
     private val table = linkedMapOf<String, MutableList<MeshRoute>>()
     private val seen = linkedMapOf<String, Long>()
@@ -18,7 +18,7 @@ class RoutingEngine(private val local: String, private val key: String, private 
     var metrics = RoutingMetrics(); private set
     fun routes(): List<MeshRoute> { expire(); return table.values.flatten().sortedWith(compareBy({ it.destination }, { it.hops }, { it.nextHop })) }
     fun routeTo(destination: String): MeshRoute? = routes().firstOrNull { it.destination == destination }
-    fun neighborUp(node: String) { require(node != local && node.length in 1..64 && neighbors.size < 8); neighbors += node; learn(node, listOf(node), Long.MAX_VALUE) }
+    fun neighborUp(node: String) { require(node != local && node.length in 1..64 && (node in neighbors || neighbors.size < 8)); neighbors += node; learn(node, listOf(node), Long.MAX_VALUE) }
     fun neighborDown(node: String): List<RoutingAction> {
         neighbors -= node; rates -= node
         invalidate(local, node)
@@ -34,7 +34,7 @@ class RoutingEngine(private val local: String, private val key: String, private 
         require(packet.source == local && auth.verify(packet))
         expire()
         if (packet.expiresAt <= now() || seen.size >= 2048) return emptyList()
-        seen[packet.id] = packet.expiresAt
+        seen["${packet.source}:${packet.id}"] = packet.expiresAt
         return forward(RoutedFrame(packet, listOf(local)), null)
     }
     fun receive(incoming: String, frame: RoutedFrame): List<RoutingAction> {
@@ -47,13 +47,14 @@ class RoutingEngine(private val local: String, private val key: String, private 
         if (!valid) { metrics = metrics.copy(rejected = metrics.rejected + 1); return emptyList() }
         // Duplicate arrivals can prove an alternative path, but never trigger delivery/forwarding twice.
         learn(p.source, path.reversed(), p.expiresAt)
-        if (seen.containsKey(p.id)) { metrics = metrics.copy(duplicates = metrics.duplicates + 1); return emptyList() }
+        val dedup = "${p.source}:${p.id}"
+        if (seen.containsKey(dedup)) { metrics = metrics.copy(duplicates = metrics.duplicates + 1); return emptyList() }
         if (seen.size >= 2048) { metrics = metrics.copy(rejected = metrics.rejected + 1); return emptyList() }
-        seen[p.id] = p.expiresAt
+        seen[dedup] = p.expiresAt
         if (p.type == PacketType.LINK_DOWN) invalidate(p.source, p.payload.toString(Charsets.UTF_8))
         val actions = mutableListOf<RoutingAction>()
         if (p.destination.isEmpty() || p.destination == local) actions += RoutingAction.Deliver(p)
-        if (p.destination != local && path.size < p.hopLimit) actions += forward(frame.copy(path = path + local), incoming)
+        if (relayAllowed() && p.destination != local && path.size < p.hopLimit) actions += forward(frame.copy(path = path + local), incoming)
         return actions
     }
     private fun forward(frame: RoutedFrame, incoming: String?): List<RoutingAction> {
