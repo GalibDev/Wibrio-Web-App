@@ -50,7 +50,7 @@ private val Mint = Color(0xFFE7F7F1)
     }
 }
 
-@Composable internal fun StartMeshScreen(preference: TransportPreference, status: MeshStatus, select: (TransportPreference) -> Unit, start: () -> Unit, stop: () -> Unit) {
+@Composable internal fun StartMeshScreen(preference: TransportPreference, status: MeshStatus, select: (TransportPreference) -> Unit, start: () -> Unit, stop: () -> Unit, searching: Boolean = false) {
     Page {
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("Welcome to", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -79,17 +79,17 @@ private val Mint = Color(0xFFE7F7F1)
         Text("Radio selection depends on device and transport support.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         PermissionSummary()
         if (status is MeshStatus.Unavailable) Info(status.reason)
-        Primary(if (status is MeshStatus.Active) "Restart discovery session" else "Start Mesh Network", start)
+        Primary(if (searching) "Discovery is running" else if (status is MeshStatus.Active) "Restart discovery session" else "Start Mesh Network", start)
         TextButton(onClick = stop, modifier = Modifier.fillMaxWidth()) { Text("Stop / reset network") }
         Text(when (status) {
             MeshStatus.Discovering -> "Discovering nearby devices…"
-            is MeshStatus.Active -> "${status.peers.size} verified direct peers · Discovery runs for 2 minutes"
+            is MeshStatus.Active -> "${status.peers.size} verified direct peers · ${if (searching) "Discovering" else "Discovery stopped"}"
             else -> "Discovery inactive · No connected devices"
         }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
-@Composable internal fun DashboardScreen(name: String, status: MeshStatus, navigate: (String) -> Unit) {
+@Composable internal fun DashboardScreen(name: String, status: MeshStatus, messages: List<DirectMessage> = emptyList(), openConversation: (String) -> Unit = {}, navigate: (String) -> Unit) {
     val peers = (status as? MeshStatus.Active)?.peers.orEmpty()
     Page {
         Surface(color = MeshNavy, shape = RoundedCornerShape(18.dp)) {
@@ -119,7 +119,12 @@ private val Mint = Color(0xFFE7F7F1)
             QuickTile("Map", Icons.Default.Hub, Modifier.weight(1f)) { navigate("Map") }
         }
         SectionLabel("Recent conversations")
-        Empty("Your inbox starts here", "Connect with a verified peer to start a conversation.", Icons.AutoMirrored.Filled.Chat)
+        val recent = messages.groupBy { it.peerId }.values.map { it.last() }.sortedByDescending { it.timestamp }.take(3)
+        if (recent.isEmpty()) Empty("Your inbox starts here", "Connect with a verified peer to start a conversation.", Icons.AutoMirrored.Filled.Chat)
+        recent.forEach { message ->
+            val peerName = peers.firstOrNull { it.id.value == message.peerId }?.displayName ?: "Peer ${message.peerId.take(8)}"
+            Action(peerName, message.text.take(80), Icons.AutoMirrored.Filled.Chat) { openConversation(message.peerId) }
+        }
         Action("Network activity", "View diagnostics", Icons.Default.Insights) { navigate("Diagnostics") }
     }
 }

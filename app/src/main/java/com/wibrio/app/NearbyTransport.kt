@@ -7,11 +7,14 @@ import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.*
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
+import com.google.android.gms.tasks.Task
 import javax.inject.Inject
 import javax.inject.Singleton
 
 // Endpoint IDs belong only to this transport session, never to persistent identities.
-@Singleton class NearbyTransport @Inject constructor(@param:ApplicationContext context: Context) : DirectLinkTransport {
+@Singleton class NearbyTransport @Inject constructor(@ApplicationContext context: Context) : DirectLinkTransport {
     private val client = Nearby.getConnectionsClient(context)
     private var generation = 0
     private var callback: ConnectionLifecycleCallback? = null
@@ -41,21 +44,27 @@ import javax.inject.Singleton
             }
             override fun onDisconnected(endpointId: String) { if (epoch == generation) listener.disconnected(endpointId, "Peer disconnected") }
         }
-        client.startAdvertising(name, SERVICE, callback!!, AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()).await()
+        client.startAdvertising(name, SERVICE, callback!!, AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()).boundedAwait()
         client.startDiscovery(SERVICE, object : EndpointDiscoveryCallback() {
             override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) { if (epoch == generation) listener.found(endpointId, info.endpointName.take(40)) }
             override fun onEndpointLost(endpointId: String) { if (epoch == generation) listener.lost(endpointId) }
-        }, DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()).await()
+        }, DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()).boundedAwait()
     }
-    override suspend fun request(endpoint: String, name: String) { client.requestConnection(name, endpoint, checkNotNull(callback)).await() }
-    override suspend fun accept(endpoint: String) { client.acceptConnection(endpoint, checkNotNull(payload)).await() }
-    override suspend fun reject(endpoint: String) { client.rejectConnection(endpoint).await() }
+    override suspend fun request(endpoint: String, name: String) { client.requestConnection(name, endpoint, checkNotNull(callback)).boundedAwait() }
+    override suspend fun accept(endpoint: String) { client.acceptConnection(endpoint, checkNotNull(payload)).boundedAwait() }
+    override suspend fun reject(endpoint: String) { client.rejectConnection(endpoint).boundedAwait() }
     override suspend fun send(endpoint: String, bytes: ByteArray) {
         require(bytes.size <= 16_384)
-        client.sendPayload(endpoint, Payload.fromBytes(bytes)).await()
+        client.sendPayload(endpoint, Payload.fromBytes(bytes)).boundedAwait()
     }
     override fun disconnect(endpoint: String) { client.disconnectFromEndpoint(endpoint) }
     override fun stopDiscovery() { client.stopAdvertising(); client.stopDiscovery() }
     override fun stop() { generation++; stopDiscovery(); client.stopAllEndpoints(); callback = null; payload = null }
     companion object { private const val SERVICE = "com.wibrio.app.direct.v1" }
+}
+
+private suspend fun <T> Task<T>.boundedAwait(): T = try {
+    withTimeout(20_000) { await() }
+} catch (timeout: TimeoutCancellationException) {
+    throw java.io.IOException("Nearby operation timed out. Retry the connection.", timeout)
 }

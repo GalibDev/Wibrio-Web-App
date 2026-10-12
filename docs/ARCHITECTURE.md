@@ -1,6 +1,6 @@
 # Architecture and milestones
 
-`app` contains Android entry points, Compose screens, Hilt wiring, ViewModel and DataStore preferences. `core:mesh` is a JVM-only boundary: it depends on coroutines, not Android, Google Nearby or Compose. UI consumes StateFlow through the ViewModel. FoundationMesh deliberately returns Unavailable for start requests.
+`app` contains Android entry points, Compose screens, Hilt wiring, ViewModel and DataStore preferences. `core:mesh` is a JVM-only boundary: it depends on coroutines, not Android, Google Nearby or Compose. UI consumes StateFlow through the ViewModel. `DirectMeshRepository` depends on the `DirectLinkTransport` interface; Hilt binds `NearbyTransport`. The adapter owns endpoint callbacks and P2P_CLUSTER operations. The repository owns bounded session state, identity proof, signed text/ACK processing and peer mapping; `DeviceIdentity` owns Android Keystore access. ReplayWindow is independently tested in the JVM module.
 
 Current packages are small to keep Phase 1 understandable. Extract core identity/security/database/transport and feature modules as their implementations arrive; empty Gradle modules add no isolation value. Screen helpers are reusable Compose functions and can be replaced with Figma tokens without changing transport contracts.
 
@@ -13,7 +13,8 @@ Current packages are small to keep Phase 1 understandable. Extract core identity
 - [x] Honest inactive UI and unsupported-feature availability screens.
 - [ ] Figma fidelity review (connector access denied).
 - [ ] Owner's real-device UI/navigation validation.
-- [ ] Phase 2 direct wireless transport and identity.
+- [x] Phase 2 direct wireless transport and identity implementation.
+- [ ] Phase 2 two-phone wireless validation by owner.
 - [ ] Phase 3 routing with deterministic multi-hop simulator tests.
 - [ ] Phase 4 encrypted reliable persistent messaging and security review.
 - [ ] Phase 5 authenticated groups and integrity-checked chunked files.

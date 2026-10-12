@@ -13,6 +13,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -20,7 +21,7 @@ data class DiscoveredPeer(val endpoint: String, val name: String, val state: Str
 data class VerificationRequest(val endpoint: String, val name: String, val digits: String)
 data class DirectMessage(val id: String, val peerId: String, val text: String, val outgoing: Boolean, val timestamp: Long, val state: DeliveryState)
 data class NetworkStats(val sent: Int = 0, val received: Int = 0, val acks: Int = 0, val failures: Int = 0)
-private data class Session(val localNonce: String = UUID.randomUUID().toString(), var remoteNonce: String? = null, var key: String? = null, var node: String? = null, var name: String = "", var accepted: Boolean = false, var verified: Boolean = false, var window: Long = 0, var received: Int = 0)
+private data class Session(val localNonce: String = UUID.randomUUID().toString(), var remoteNonce: String? = null, var key: String? = null, var node: String? = null, var name: String = "", var accepted: Boolean = false, var verified: Boolean = false, var window: Long = 0, var received: Int = 0, var outgoingSequence: Long = 0, val replay: ReplayWindow = ReplayWindow(), var pendingProof: ByteArray? = null, val deferred: MutableList<ByteArray> = mutableListOf())
 
 @Singleton class DirectMeshRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -41,18 +42,28 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
     private val sessions = mutableMapOf<String, Session>()
     private val availableEndpoints = mutableSetOf<String>()
     private val seen = linkedSetOf<String>()
+    private val pendingPackets = AtomicInteger(0)
     private var localName = "Wibrio"
     private var running = false
-    private var epoch = 0
+    @Volatile private var epoch = 0
     private val trust = context.getSharedPreferences("wibrio_verified_peers", Context.MODE_PRIVATE)
     init { launch { localId.value = identity.localNodeId().value } }
-    private fun launch(block: suspend () -> Unit) { val submitted = epoch; scope.launch {
+    private fun launch(completed: () -> Unit = {}, block: suspend () -> Unit) { val submitted = epoch; scope.launch { try {
         mutex.withLock {
             if (submitted != epoch) return@withLock
             try { block() } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { error.value = failure.message?.take(180) ?: "Wireless operation failed"; stats.value = stats.value.copy(failures = stats.value.failures + 1) }
         }
-    } }
+    } finally { completed() } } }
+    private fun packet(endpoint: String, block: suspend () -> Unit) {
+        if (pendingPackets.incrementAndGet() > 64) {
+            pendingPackets.decrementAndGet()
+            transport.disconnect(endpoint)
+            disconnected(endpoint, "Packet queue limit exceeded")
+            return
+        }
+        launch(completed = { pendingPackets.decrementAndGet() }, block = block)
+    }
     fun configureName(name: String) { localName = name.trim().take(40).ifBlank { "Wibrio" } }
     override suspend fun start(preference: TransportPreference) = mutex.withLock {
         if (running && searching.value) return@withLock
@@ -137,15 +148,15 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
         publish()
     }
     private suspend fun sendPacket(endpoint: String, body: JSONObject) {
-        body.put("v", 1).put("from", localId.value)
+        body.put("v", 1).put("from", localId.value).put("seq", ++checkNotNull(sessions[endpoint]).outgoingSequence)
         val bytes = body.toString().toByteArray(Charsets.UTF_8)
         val envelope = JSONObject().put("body", DeviceIdentity.encode(bytes)).put("sig", identity.sign(bytes)).toString().toByteArray(Charsets.UTF_8)
         transport.send(endpoint, envelope)
         stats.value = stats.value.copy(sent = stats.value.sent + 1)
     }
-    override fun received(endpoint: String, bytes: ByteArray) = launch {
-        val session = sessions[endpoint] ?: return@launch
-        if (!running || !session.accepted) return@launch
+    override fun received(endpoint: String, bytes: ByteArray): Unit = packet(endpoint) {
+        val session = sessions[endpoint] ?: return@packet
+        if (!running || !session.accepted) return@packet
         try {
             val now = android.os.SystemClock.elapsedRealtime()
             if (now - session.window > 1000) { session.window = now; session.received = 0 }
@@ -157,6 +168,17 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
             val body = JSONObject(bodyBytes.toString(Charsets.UTF_8))
             require(body.getInt("v") == 1)
             val type = body.getString("type")
+            // Byte payload completion can race; never assume HELLO/PROOF/DATA order.
+            if (type == "PROOF" && session.key == null) {
+                require(session.pendingProof == null) { "Repeated premature identity proof" }
+                session.pendingProof = bytes
+                return@packet
+            }
+            if ((type == "DATA" || type == "ACK") && !session.verified) {
+                require(session.deferred.size < 8) { "Too many packets before identity verification" }
+                session.deferred += bytes
+                return@packet
+            }
             val key = if (type == "HELLO") body.getString("key") else checkNotNull(session.key)
             require(DeviceIdentity.verify(key, bodyBytes, envelope.getString("sig"))) { "Invalid packet signature" }
             require(body.getString("from") == DeviceIdentity.nodeId(key)) { "Identity mismatch" }
@@ -170,15 +192,20 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
                 require(trust.all.size < 128 || pinned != null) { "Trusted device limit reached" }
                 session.key = key; session.node = node; session.remoteNonce = nonce; session.name = body.getString("name").take(40)
                 sendPacket(endpoint, JSONObject().put("type", "PROOF").put("to", node).put("nonce", nonce).put("peerNonce", session.localNonce))
-                return@launch
+                session.pendingProof?.let { session.pendingProof = null; received(endpoint, it) }
+                return@packet
             }
             require(body.getString("to") == localId.value && body.getString("nonce") == session.localNonce) { "Wrong recipient or expired session" }
+            if (!session.replay.accept(body.getLong("seq"))) return@packet
             if (type == "PROOF") {
                 require(body.getString("peerNonce") == session.remoteNonce && !session.verified) { "Invalid identity proof" }
                 check(trust.edit().putString(session.node, session.key).commit()) { "Could not save verified peer" }
                 session.verified = true
                 nearby.value = nearby.value.map { if (it.endpoint == endpoint) it.copy(name = session.name, state = "Connected") else it }
-                publish(); return@launch
+                publish()
+                val deferred = session.deferred.toList(); session.deferred.clear()
+                deferred.forEach { received(endpoint, it) }
+                return@packet
             }
             require(session.verified) { "Identity handshake incomplete" }
             val id = body.getString("id"); require(UUID.fromString(id).toString() == id)

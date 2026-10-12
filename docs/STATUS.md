@@ -1,5 +1,7 @@
 # Development status
 
+**Current milestone:** Phase 2 direct connectivity is implemented; see [Phase 2 status](PHASE2_STATUS.md) and [two-device test steps](PHASE2_TESTING.md). The following Phase 1 notes are historical and do not describe current transport availability.
+
 Phase 1 foundation implementation and debug build are complete. Owner's UI/navigation validation remains pending. No Android Studio, emulator, instrumentation, unit or physical-device tests have been run, in accordance with the owner's manual testing workflow. Figma connector access remains denied. Eight screen layouts now follow the embedded thumbnail in the owner's local `.fig` export; full editable canvas was not read. See `DESIGN_REFERENCE.md` for fidelity limits.
 
 ## Build verification — 2026-10-12
