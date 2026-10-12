@@ -1,5 +1,9 @@
 # Wibrio
 
+## Web app · Phase 1
+
+The responsive Next.js web interface lives in [`web/`](web/README.md). Run `cd web`, `npm ci`, then `npm run dev`. It offers explicitly labeled local demo networking, IndexedDB chats, all required screens, and light/dark themes. It does not use the native Android networking engine below.
+
 Native Android offline mesh communication project. **Phase 3 experimental multi-hop implementation; physical-device validation pending.**
 
 ## Open and build
