@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.wibrio.mesh.MeshStatus
 import com.wibrio.mesh.TransportPreference
+import com.wibrio.mesh.Peer
 
 // Tokens inferred from the locally supplied .fig thumbnail, not connector exports.
 internal val MeshBlue = Color(0xFF3464FF)
@@ -78,9 +79,13 @@ private val Mint = Color(0xFFE7F7F1)
         Text("Radio selection depends on device and transport support.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         PermissionSummary()
         if (status is MeshStatus.Unavailable) Info(status.reason)
-        Primary("Start Mesh Network", start)
+        Primary(if (status is MeshStatus.Active) "Restart discovery session" else "Start Mesh Network", start)
         TextButton(onClick = stop, modifier = Modifier.fillMaxWidth()) { Text("Stop / reset network") }
-        Text("Discovery inactive · No connected devices", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(when (status) {
+            MeshStatus.Discovering -> "Discovering nearby devices…"
+            is MeshStatus.Active -> "${status.peers.size} verified direct peers · Discovery runs for 2 minutes"
+            else -> "Discovery inactive · No connected devices"
+        }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -91,7 +96,7 @@ private val Mint = Color(0xFFE7F7F1)
             Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(if (status is MeshStatus.Active) "Mesh is active" else "Mesh is inactive", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text(when (status) { is MeshStatus.Active -> "Mesh is active"; MeshStatus.Discovering -> "Discovering peers"; else -> "Mesh is inactive" }, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text("Hello, ${name.ifBlank { "neighbor" }}", color = Color(0xFFAFC3E5), style = MaterialTheme.typography.bodySmall)
                     }
                     Icon(Icons.Default.Wifi, null, tint = Color(0xFF61E0D1))
@@ -191,20 +196,21 @@ private val Mint = Color(0xFFE7F7F1)
     category?.let { selection -> AlertDialog(onDismissRequest = { category = null }, title = { Text(selection) }, text = { Text("File sharing isn't available yet. No file has been selected or sent.") }, confirmButton = { TextButton(onClick = { category = null }) { Text("Got it") } }) }
 }
 
-@Composable internal fun NetworkMapScreen(name: String) {
+@Composable internal fun NetworkMapScreen(name: String, peers: List<Peer> = emptyList()) {
     Page {
-        SectionLabel("0 devices reachable", "Only confirmed connections appear here")
+        SectionLabel("${peers.size} devices reachable", "Only verified direct connections appear here")
         Box(Modifier.fillMaxWidth().height(320.dp), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(Modifier.size(88.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = .07f), CircleShape), contentAlignment = Alignment.Center) {
                     Box(Modifier.size(64.dp).background(MeshBlue, CircleShape), contentAlignment = Alignment.Center) { Text("You", color = Color.White, fontWeight = FontWeight.Bold) }
                 }
                 Text(name.ifBlank { "This device" }, style = MaterialTheme.typography.titleSmall)
-                Text("Offline", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (peers.isEmpty()) "No active links" else "${peers.size} direct links", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Info("No active links. Direct peers and relay paths will appear when the mesh connects.")
-        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) { Text("● This device", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium); Text("○ No peers", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium) }
+        peers.forEach { Feature(Icons.Default.Hub, it.displayName, "This device ↔ ${it.displayName} · Direct · 1 hop") }
+        if (peers.isEmpty()) Info("No active links. Verified direct peers appear after connection.")
+        Text("Multi-hop routes are not available in Phase 2.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

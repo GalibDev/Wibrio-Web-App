@@ -23,20 +23,23 @@ class ProfileStore @Inject constructor(@param:ApplicationContext private val con
     suspend fun saveName(value: String) { context.preferences.edit { it[name] = value.trim().take(40) } }
     suspend fun dark(value: Boolean) { context.preferences.edit { it[dark] = value } }
 }
-// Explicit unavailable implementation: Phase 1 must never invent wireless connectivity.
-class FoundationMesh @Inject constructor() : MeshRepository {
-    private val mutable = MutableStateFlow<MeshStatus>(MeshStatus.Inactive)
-    override val status = mutable.asStateFlow()
-    override suspend fun start(preference: TransportPreference) {
-        mutable.value = MeshStatus.Unavailable("Nearby Connections arrives in Phase 2. No wireless session has started.")
-    }
-    override suspend fun stop() { mutable.value = MeshStatus.Inactive }
-}
-@HiltViewModel class WibrioViewModel @Inject constructor(private val store: ProfileStore, private val mesh: FoundationMesh) : ViewModel() {
+@HiltViewModel class WibrioViewModel @Inject constructor(private val store: ProfileStore, private val mesh: DirectMeshRepository) : ViewModel() {
     val profile = store.profile.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Profile())
     val meshStatus = mesh.status
+    val nearby = mesh.nearby
+    val verification = mesh.verification
+    val messages = mesh.messages
+    val stats = mesh.stats
+    val localId = mesh.localId
+    val searching = mesh.searching
+    val selectedPeer = MutableStateFlow<String?>(null)
+    fun connect(endpoint: String) { mesh.connect(endpoint) }
+    fun confirm(endpoint: String, accepted: Boolean) { mesh.confirm(endpoint, accepted) }
+    fun disconnect(node: String) { mesh.disconnectPeer(node) }
+    fun send(text: String) { selectedPeer.value?.let { mesh.send(it, text) } }
+    override fun onCleared() { mesh.shutdown(); super.onCleared() }
     val preference = MutableStateFlow(TransportPreference.AUTOMATIC)
-    val error = MutableStateFlow<String?>(null)
+    val error = mesh.error
     fun saveName(value: String, onSaved: () -> Unit) = viewModelScope.launch {
         if (value.isBlank()) return@launch
         runCatching { store.saveName(value) }
@@ -44,6 +47,6 @@ class FoundationMesh @Inject constructor() : MeshRepository {
             .onFailure { error.value = "Could not save profile. Try again." }
     }
     fun dark(value: Boolean) = viewModelScope.launch { runCatching { store.dark(value) }.onFailure { error.value = "Could not save theme." } }
-    fun start() = viewModelScope.launch { mesh.start(preference.value) }
+    fun start() = viewModelScope.launch { mesh.configureName(profile.value.name); mesh.start(preference.value) }
     fun stop() = viewModelScope.launch { mesh.stop() }
 }
