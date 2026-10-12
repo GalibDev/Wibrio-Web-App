@@ -41,7 +41,11 @@ import com.wibrio.mesh.*
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 
-@Composable internal fun Page(content: @Composable ColumnScope.() -> Unit) { Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 20.dp).widthIn(max = 600.dp), verticalArrangement = Arrangement.spacedBy(20.dp), content = content) }
+@Composable internal fun Page(content: @Composable ColumnScope.() -> Unit) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = 600.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(18.dp), content = content)
+    }
+}
 @Composable internal fun Logo(size: Int) { Image(painterResource(R.drawable.wibrio_logo), contentDescription = "Wibrio logo", modifier = Modifier.size(size.dp)) }
 @Composable internal fun Hero(title: String, subtitle: String) { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold); Text(subtitle, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 @Composable internal fun Primary(label: String, onClick: () -> Unit) { Button(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = RoundedCornerShape(16.dp)) { Text(label, fontWeight = FontWeight.SemiBold) } }
