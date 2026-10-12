@@ -26,7 +26,7 @@ No demo peers, routes or delivery states are used. No transport is installed. St
 
 ## Design status
 
-Figma file `c7FiFlxLRArsjSTztQvG42`, Start Mesh `2:2`, Dashboard `2:28`, Chats `2:147`. The connector denied file access, including the explicit Start Mesh frame. The UI follows the supplied logo and navy/blue/cyan brief with independent Compose components. **It has not been visually synchronized with Figma.** Revisit when connector access is available.
+Figma connector access was denied for the original file and shared copy. The owner then supplied `Wibrio — Premium Mesh Communication UI.fig` locally and authorized implementation from its embedded thumbnail. Eight screen layouts have been adapted to native Compose from that 385 × 400 preview. Full editable canvas and exact measurements remain unavailable; this is not a pixel-perfect match. See [design reference and limitations](docs/DESIGN_REFERENCE.md).
 
 ## Validation
 

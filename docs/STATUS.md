@@ -1,12 +1,12 @@
 # Development status
 
-Phase 1 foundation implementation and debug build are complete. Owner's UI/navigation validation remains pending. No Android Studio, emulator, instrumentation, unit or physical-device tests have been run, in accordance with the owner's manual testing workflow. Figma connector access remains denied. UI is based on the supplied logo and written design brief, not successfully read Figma frames.
+Phase 1 foundation implementation and debug build are complete. Owner's UI/navigation validation remains pending. No Android Studio, emulator, instrumentation, unit or physical-device tests have been run, in accordance with the owner's manual testing workflow. Figma connector access remains denied. Eight screen layouts now follow the embedded thumbnail in the owner's local `.fig` export; full editable canvas was not read. See `DESIGN_REFERENCE.md` for fidelity limits.
 
 ## Build verification — 2026-10-12
 
 Command: `./gradlew.bat :app:assembleDebug --console=plain`
 
-Result: **BUILD SUCCESSFUL in 16s**, 44 actionable tasks (13 executed, 31 up-to-date), using installed JBR 21 and SDK 36 with Java 17 bytecode target.
+Latest design update result: **BUILD SUCCESSFUL in 8s**, 44 actionable tasks (6 executed, 38 up-to-date), using installed JBR 21 and SDK 36 with Java 17 bytecode target. Original foundation build also passed.
 
 APK: `app/build/outputs/apk/debug/app-debug.apk` (generated, intentionally excluded from Git).
 
