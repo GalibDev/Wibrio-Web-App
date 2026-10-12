@@ -17,6 +17,7 @@ Package: `com.wibrio.app`. Minimum Android 8 / API 26; target API 36.
 - Compose Material 3 light/dark theme, supplied original Wibrio logo.
 - Splash, onboarding, local display-name setup and persistent DataStore preferences.
 - API-specific wireless permission requests and app-settings recovery.
+- Device Wi-Fi/Bluetooth status read from platform services, with permission-aware fallback.
 - Dashboard, mesh controls, nearby people, inbox, conversation shell, group availability, file/transfer availability, network map, profile, settings, security, diagnostics, voice/video availability screens.
 - Hilt application/ViewModel injection and lifecycle-aware StateFlow collection.
 - Independent Kotlin mesh module with transport, identity, messaging and mesh contracts.

@@ -54,7 +54,10 @@ private val Navy = Color(0xFF081B46)
 private val Cyan = Color(0xFF00D5E8)
 private val destinations = listOf("Home", "Nearby", "Chats", "Map", "Settings")
 internal fun permissions(): Array<String> = buildList {
-    if (Build.VERSION.SDK_INT <= 32) add(Manifest.permission.ACCESS_FINE_LOCATION)
+    if (Build.VERSION.SDK_INT <= 32) {
+        add(Manifest.permission.ACCESS_FINE_LOCATION)
+        add(Manifest.permission.ACCESS_COARSE_LOCATION)
+    }
     if (Build.VERSION.SDK_INT >= 31) addAll(listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE))
     if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.NEARBY_WIFI_DEVICES)
 }.toTypedArray()
@@ -87,6 +90,7 @@ internal fun permissions(): Array<String> = buildList {
                     Hero("Hello, ${profile.name.ifBlank { "neighbor" }}", "Good conversations start nearby.")
                     Card(colors = CardDefaults.cardColors(containerColor = Navy)) { Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) { Icon(Icons.Default.Hub, null, tint = Cyan, modifier = Modifier.size(36.dp)); Text("Your mesh is inactive", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("Choose how your device discovers the people around you.", color = Color(0xFFB9CBE8)); Button(onClick = { nav.navigate("Start Mesh") }) { Text("Open mesh controls") } } }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) { Metric("Reachable", "0", Modifier.weight(1f)); Metric("Direct", "0", Modifier.weight(1f)); Metric("Relayed", "0", Modifier.weight(1f)) }
+                    RadioStatus()
                     Text("Quick actions", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Action("Nearby people", "Find your next connection", Icons.Default.People) { nav.navigate("Nearby") }
                     Action("Share a file", "Images, documents and more", Icons.Default.Folder) { nav.navigate("Files") }

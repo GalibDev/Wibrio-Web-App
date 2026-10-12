@@ -15,7 +15,7 @@ import javax.inject.Inject
 
 private val Context.preferences by preferencesDataStore("wibrio_profile")
 data class Profile(val name: String = "", val dark: Boolean = false, val ready: Boolean = false)
-class ProfileStore @Inject constructor(@ApplicationContext private val context: Context) {
+class ProfileStore @Inject constructor(@param:ApplicationContext private val context: Context) {
     private val name = stringPreferencesKey("display_name")
     private val dark = booleanPreferencesKey("dark_theme")
     val profile = context.preferences.data.catch { if (it is IOException) emit(emptyPreferences()) else throw it }

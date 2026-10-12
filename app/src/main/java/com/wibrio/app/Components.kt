@@ -52,5 +52,26 @@ import kotlinx.coroutines.delay
 @Composable internal fun Empty(title: String, detail: String, icon: ImageVector) { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp)); Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold); Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
 @Composable internal fun ProfileEditor(initial: String, title: String, subtitle: String, save: (String) -> Unit) { var name by rememberSaveableName(initial); Page { Hero(title, subtitle); OutlinedTextField(value = name, onValueChange = { name = it.take(40) }, label = { Text("Display name") }, singleLine = true, supportingText = { Text("${name.length}/40 · Stored on this device") }, modifier = Modifier.fillMaxWidth()); Button(onClick = { save(name.trim()) }, enabled = name.isNotBlank(), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Save and continue") } } }
 @Composable internal fun rememberSaveableName(initial: String) = androidx.compose.runtime.saveable.rememberSaveable(initial) { mutableStateOf(initial) }
+@Composable internal fun RadioStatus() {
+    val context = LocalContext.current
+    val owner = LocalLifecycleOwner.current
+    var revision by remember { mutableIntStateOf(0) }
+    DisposableEffect(owner) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) revision++ }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+    val radio = remember(revision) {
+        val wifi = context.applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)
+        val bluetooth = context.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter
+        val bluetoothState = when {
+            bluetooth == null -> "Not supported"
+            Build.VERSION.SDK_INT >= 31 && ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED -> "Permission needed"
+            else -> runCatching { if (bluetooth.isEnabled) "On" else "Off" }.getOrDefault("Unavailable")
+        }
+        (if (wifi == null) "Not supported" else if (wifi.isWifiEnabled) "On" else "Off") to bluetoothState
+    }
+    Feature(Icons.Default.Wifi, "Device radios", "Wi-Fi: ${radio.first} • Bluetooth: ${radio.second}")
+}
 @Composable internal fun PermissionSummary() { val context = LocalContext.current; var refresh by remember { mutableIntStateOf(0) }; val owner = LocalLifecycleOwner.current; DisposableEffect(owner) { val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refresh++ }; owner.lifecycle.addObserver(observer); onDispose { owner.lifecycle.removeObserver(observer) } }; val granted = remember(refresh) { permissions().all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED } }; Info(if (granted) "Wireless permissions granted. Transport is not installed yet." else "Wireless permissions needed before nearby discovery.") }
 @Composable internal fun PermissionPage(next: () -> Unit) { val context = LocalContext.current; var result by remember { mutableStateOf<String?>(null) }; val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { values -> result = if (values.values.all { it }) "Permissions granted" else "Some permissions were denied. You can retry or enable them in app settings." }; Page { Hero("Ready for nearby", "You're in control of device access."); Feature(Icons.Default.Bluetooth, "Nearby devices", "Bluetooth discovery, advertising and connections."); Feature(Icons.Default.Wifi, "Local Wi-Fi", "Discover compatible wireless connections."); if (Build.VERSION.SDK_INT <= 32) Feature(Icons.Default.LocationOn, "Location access", "Required by Android for nearby discovery on this version."); key(result) { PermissionSummary() }; result?.let { Info(it) }; Primary("Grant wireless permissions") { launcher.launch(permissions()) }; OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))) }, modifier = Modifier.fillMaxWidth()) { Text("Open app settings") }; TextButton(onClick = next, modifier = Modifier.fillMaxWidth()) { Text("Continue") } } }
