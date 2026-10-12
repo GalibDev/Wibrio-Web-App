@@ -16,6 +16,7 @@ interface DirectLinkTransport {
     suspend fun reject(endpoint: String)
     suspend fun send(endpoint: String, bytes: ByteArray)
     fun disconnect(endpoint: String)
+    /** Pause scanning while retaining advertising and existing connections. */
     fun stopDiscovery()
     fun stop()
 }

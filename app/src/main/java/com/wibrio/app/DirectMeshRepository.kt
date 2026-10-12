@@ -60,7 +60,7 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
     suspend fun diagnosticsReport(): ByteArray = mutex.withLock {
         val peers = (status.value as? MeshStatus.Active)?.peers.orEmpty()
         DiagnosticsReport.encode(mapOf(
-            "generatedAtUtc" to java.time.Instant.now().toString(), "appVersion" to "0.4.0", "localNode" to localId.value,
+            "generatedAtUtc" to java.time.Instant.now().toString(), "appVersion" to "0.4.1", "localNode" to localId.value,
             "manufacturer" to android.os.Build.MANUFACTURER, "model" to android.os.Build.MODEL, "androidApi" to android.os.Build.VERSION.SDK_INT,
             "connectionState" to status.value.javaClass.simpleName, "foregroundSessionRequested" to running, "searching" to searching.value,
             "relayEnabled" to relayEnabled.value, "peerCount" to peers.size, "directVerifiedPeers" to sessions.values.count { it.verified },
@@ -176,17 +176,30 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
         require(sessions.size < 8) { "Connection limit reached" }
         if (sessions.containsKey(endpoint)) return@launch
         sessions[endpoint] = Session()
+        recorder.event("connection_request", "Requesting a direct link")
         nearby.value = nearby.value.map { if (it.endpoint == endpoint) it.copy(state = "Connecting") else it }
-        try { transport.request(endpoint, localName); timeout(endpoint, epoch) }
-        catch (failure: Exception) { remove(endpoint); throw failure }
+        timeout(endpoint, epoch)
+        linkOperation(endpoint) { transport.request(endpoint, localName) }
     }
     fun confirm(endpoint: String, accepted: Boolean) = launch {
         require(verification.value.any { it.endpoint == endpoint }) { "Verification request expired" }
         verification.value = verification.value.filterNot { it.endpoint == endpoint }
         if (accepted) {
+            recorder.event("connection_accept", "User approved matching numeric code")
             sessions[endpoint]?.accepted = true
-            try { transport.accept(endpoint) } catch (failure: Exception) { remove(endpoint); throw failure }
+            linkOperation(endpoint) { transport.accept(endpoint) }
         } else { try { transport.reject(endpoint) } finally { remove(endpoint) } }
+    }
+    private fun linkOperation(endpoint: String, operation: suspend () -> Unit) {
+        val expected = sessions[endpoint] ?: return
+        val started = epoch
+        launchLinkOperation(scope, mutex, { running && epoch == started && sessions[endpoint] === expected }, { failure ->
+            transport.disconnect(endpoint)
+            remove(endpoint)
+            error.value = failure.message?.take(180) ?: "Wireless connection failed"
+            recorder.event("connection_failure", error.value!!)
+            stats.value = stats.value.copy(failures = stats.value.failures + 1)
+        }, operation)
     }
     fun disconnectPeer(node: String) = launch { sessions.entries.firstOrNull { it.value.node == node }?.key?.let { transport.disconnect(it); remove(it) } }
     private fun timeout(endpoint: String, generation: Int) { val expected = sessions[endpoint]; scope.launch {
@@ -203,12 +216,16 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
     override fun verification(endpoint: String, name: String, digits: String) = launch {
         if (!running || (sessions.size >= 8 && !sessions.containsKey(endpoint)) || digits.isBlank()) { transport.reject(endpoint); return@launch }
         sessions.getOrPut(endpoint) { Session() }.name = name
+        recorder.event("connection_code", "Numeric verification requested")
+        if (nearby.value.none { it.endpoint == endpoint }) nearby.value += DiscoveredPeer(endpoint, name, "Verify code")
+        else nearby.value = nearby.value.map { if (it.endpoint == endpoint) it.copy(state = "Verify code") else it }
         if (verification.value.none { it.endpoint == endpoint }) verification.value += VerificationRequest(endpoint, name, digits)
         timeout(endpoint, epoch)
     }
     override fun connected(endpoint: String) = launch {
         val session = sessions[endpoint]
         if (!running || session?.accepted != true) { transport.disconnect(endpoint); return@launch }
+        recorder.event("connection_link", "Nearby link established; checking signed identity")
         verification.value = verification.value.filterNot { it.endpoint == endpoint }
         sendPacket(endpoint, JSONObject().put("type", "HELLO").put("nonce", session.localNonce).put("name", localName).put("key", identity.publicKey()))
     }

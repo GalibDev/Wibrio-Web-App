@@ -23,6 +23,7 @@ import javax.inject.Singleton
     private var payload: PayloadCallback? = null
     private var discovery: EndpointDiscoveryCallback? = null
     private var advertisedName = "Wibrio"
+    private var advertising = false
     override suspend fun start(name: String, listener: DirectLinkListener) {
         stop()
         val epoch = generation
@@ -62,7 +63,10 @@ import javax.inject.Singleton
         resumeDiscovery()
     }
     override suspend fun resumeDiscovery() {
-        client.startAdvertising(advertisedName, SERVICE, checkNotNull(callback), AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()).boundedAwait()
+        if (!advertising) {
+            client.startAdvertising(advertisedName, SERVICE, checkNotNull(callback), AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()).boundedAwait()
+            advertising = true
+        }
         client.startDiscovery(SERVICE, checkNotNull(discovery), DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()).boundedAwait()
     }
     override suspend fun request(endpoint: String, name: String) { client.requestConnection(name, endpoint, checkNotNull(callback)).boundedAwait() }
@@ -79,8 +83,9 @@ import javax.inject.Singleton
         } finally { transfers.forget(outgoing.id) }
     }
     override fun disconnect(endpoint: String) { transfers.disconnect(endpoint); client.disconnectFromEndpoint(endpoint) }
-    override fun stopDiscovery() { client.stopAdvertising(); client.stopDiscovery() }
-    override fun stop() { generation++; transfers.stop(); stopDiscovery(); client.stopAllEndpoints(); callback = null; payload = null; discovery = null }
+    // Pause expensive scanning, but remain reachable for incoming verified connections.
+    override fun stopDiscovery() { client.stopDiscovery() }
+    override fun stop() { generation++; transfers.stop(); stopDiscovery(); client.stopAdvertising(); advertising = false; client.stopAllEndpoints(); callback = null; payload = null; discovery = null }
     // Isolate pre-durable-ACK clients; all field-test phones must run 0.4.0 or newer.
     companion object { private const val SERVICE = "com.wibrio.app.mesh.v4" }
 }

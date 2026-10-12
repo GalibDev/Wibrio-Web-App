@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.wibrio.app"
     compileSdk = 36
-    defaultConfig { applicationId = "com.wibrio.app"; minSdk = 26; targetSdk = 36; versionCode = 4; versionName = "0.4.0" }
+    defaultConfig { applicationId = "com.wibrio.app"; minSdk = 26; targetSdk = 36; versionCode = 5; versionName = "0.4.1" }
     buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     buildTypes { release { isMinifyEnabled = false; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt")) } }

@@ -33,7 +33,7 @@ import java.util.Locale
         found.filter { it.state != "Connected" && it.name.contains(query, true) }.forEach { peer ->
             Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text(peer.name, fontWeight = FontWeight.SemiBold); Text(peer.state, style = MaterialTheme.typography.bodySmall) }
-                TextButton(onClick = { connect(peer.endpoint) }, enabled = peer.state == "Nearby") { Text(if (peer.state == "Connecting") "Connecting…" else "Connect") }
+                TextButton(onClick = { connect(peer.endpoint) }, enabled = peer.state == "Nearby") { Text(when (peer.state) { "Connecting" -> "Connecting…"; "Verify code" -> "Verify code"; else -> "Connect" }) }
             } }
         }
         if (found.isEmpty() && connected.isEmpty()) Empty("No devices yet", "Start on both phones, keep Bluetooth and Wi-Fi on, then connect here.", Icons.Default.PeopleOutline)
