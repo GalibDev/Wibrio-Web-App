@@ -17,15 +17,19 @@ Current packages are small to keep Phase 1 understandable. Extract core identity
 - [ ] Phase 2 two-phone wireless validation by owner.
 - [x] Phase 3 routing with deterministic multi-hop simulator tests.
 - [ ] Phase 3 real four/five-device validation by owner.
-- [ ] Phase 4 encrypted reliable persistent messaging and security review.
+- [x] Phase 4 encrypted Room history/outbox/receipts and restart-aware retry.
+- [x] Phase 4 foreground-session ownership, diagnostic export and 4/5/10-node automated tests.
+- [ ] Phase 4 physical field acceptance and independent security review.
 - [ ] Phase 5 authenticated groups and integrity-checked chunked files.
 - [ ] Phase 6 direct WebRTC calling with verified IP connectivity.
 - [ ] Advanced routing/transports and release auditing.
 
 ## Security boundary
 
-Display name is not a device identity. Nearby endpoint identifiers must never serve as permanent IDs. Relays must never mark a message delivered; final authenticated recipient ACK is required. Future transport must reject unknown peers until the user confirms authentication. Private keys belong in Android Keystore. No encryption/security claim is made for this foundation. There is no INTERNET permission or server dependency in current application runtime; build dependency downloads require internet.
+Display name is not a device identity. Nearby endpoint identifiers never serve as permanent IDs. Only an addressed, authenticated final-recipient ACK can mark delivery, after durable recipient storage. Numeric peer verification stays mandatory on each fresh link. Persistent signing and local database encryption keys belong in Android Keystore; ephemeral HPKE private keys stay in session memory. The complete protocol is experimental and has not had independent security review. Production networking binds Nearby only, with no application server; offline operation must still be validated physically.
+
+`MeshForegroundService` owns user-started sessions independently of ViewModel lifetime. `MessageJournal` provides atomic durable snapshots through Room and AES-GCM; the existing mutex serializes state and persistence, and new recipient sessions cause fresh encryption of queued logical messages. `NetworkDiagnostics` records bounded metadata events and observed route recovery; export uses Android's document picker. Simulated transports are confined to test sources.
 
 ## Platform considerations
 
-Wireless permissions differ across API 26–30, 31–32, and 33+. Location remains needed through API 32 for planned Nearby discovery. Android 12+ Bluetooth permissions and Android 13+ nearby Wi-Fi access are requested explicitly. Notification, microphone, camera and foreground-service permissions are deferred until corresponding functionality exists. Nearby selects its own underlying transports; UI priority preferences cannot force them.
+Wireless permissions differ across API 26–30, 31–32, and 33+. Location is requested through API 32 for Nearby discovery. Android 12+ Bluetooth permissions and Android 13+ nearby Wi-Fi access are requested explicitly. A connectedDevice FGS uses declared normal/type permissions; notification access is separately offered on API 33+. Microphone/camera permissions remain deferred. Nearby selects underlying transports; UI priority preferences cannot force them. FGS sessions are non-sticky, user-started and capped at 30 minutes; OEM/Doze/screen-off behavior remains a field-test gate.

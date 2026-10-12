@@ -1,0 +1,2 @@
+run_id,utc_time,scenario,status,app_version,apk_sha256,devices_and_android_api,play_services_versions,confirmed_direct_edges,source,destination,reported_hops,measured_total_m,internet_disabled,foreground_or_background,attempted_messages,destination_acks,recipient_unique_messages,duplicates,latency_ms,observed_local_recovery_ms,battery_and_oem_policy,report_files,notes
+template,,four_phone_line,NOT_RUN,0.4.0,,,,A-B B-C C-D,A,D,3,,UNVERIFIED,foreground,,,,,,,,,Fill one row per scenario; do not count simulator results as field measurements

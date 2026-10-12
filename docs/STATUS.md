@@ -1,6 +1,6 @@
 # Development status
 
-**Current milestone:** Phase 3 experimental multi-hop routing is implemented; see [current protocol/status](PHASE3.md) and [four/five-device test steps](PHASE3_TESTING.md). The following Phase 1 notes and separate Phase 2 notes are historical. Physical wireless validation remains pending.
+**Current milestone:** Phase 4 reliability hardening is implemented; see [audit/implementation](PHASE4.md), [automated verification](PHASE4_RESULTS.md) and [physical field checklist](PHASE4_FIELD_TESTING.md). Physical wireless/background/range acceptance remains pending. The following Phase 1 notes and separate Phase 2/3 notes are historical and do not describe current persistence/background functionality.
 
 Phase 1 foundation implementation and debug build are complete. Owner's UI/navigation validation remains pending. No Android Studio, emulator, instrumentation, unit or physical-device tests have been run, in accordance with the owner's manual testing workflow. Figma connector access remains denied. Eight screen layouts now follow the embedded thumbnail in the owner's local `.fig` export; full editable canvas was not read. See `DESIGN_REFERENCE.md` for fidelity limits.
 
