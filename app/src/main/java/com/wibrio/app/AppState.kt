@@ -37,7 +37,12 @@ class FoundationMesh @Inject constructor() : MeshRepository {
     val meshStatus = mesh.status
     val preference = MutableStateFlow(TransportPreference.AUTOMATIC)
     val error = MutableStateFlow<String?>(null)
-    fun saveName(value: String) = viewModelScope.launch { runCatching { store.saveName(value) }.onFailure { error.value = "Could not save profile. Try again." } }
+    fun saveName(value: String, onSaved: () -> Unit) = viewModelScope.launch {
+        if (value.isBlank()) return@launch
+        runCatching { store.saveName(value) }
+            .onSuccess { onSaved() }
+            .onFailure { error.value = "Could not save profile. Try again." }
+    }
     fun dark(value: Boolean) = viewModelScope.launch { runCatching { store.dark(value) }.onFailure { error.value = "Could not save theme." } }
     fun start() = viewModelScope.launch { mesh.start(preference.value) }
     fun stop() = viewModelScope.launch { mesh.stop() }
