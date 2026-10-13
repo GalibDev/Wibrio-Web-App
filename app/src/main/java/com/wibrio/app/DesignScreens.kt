@@ -1,13 +1,14 @@
 package com.wibrio.app
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
+
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.wibrio.mesh.MeshStatus
 import com.wibrio.mesh.TransportPreference
 import com.wibrio.mesh.Peer
+import com.wibrio.mesh.NetworkOverview
 
 // Tokens inferred from the locally supplied .fig thumbnail, not connector exports.
 internal val MeshBlue = Color(0xFF3464FF)
@@ -94,7 +96,8 @@ private val Mint = Color(0xFFE7F7F1)
 }
 
 @Composable internal fun DashboardScreen(name: String, status: MeshStatus, messages: List<DirectMessage> = emptyList(), openConversation: (String) -> Unit = {}, navigate: (String) -> Unit) {
-    val peers = (status as? MeshStatus.Active)?.peers.orEmpty()
+    val overview = NetworkOverview.from((status as? MeshStatus.Active)?.peers.orEmpty())
+    val peers = overview.peers
     Page {
         Surface(color = MeshNavy, shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -110,10 +113,11 @@ private val Mint = Color(0xFFE7F7F1)
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Metric("Reachable", peers.size.toString().padStart(2, '0'), Modifier.weight(1f))
-            Metric("Direct", peers.count { it.hops == 1 }.toString().padStart(2, '0'), Modifier.weight(1f))
-            Metric("Relayed", peers.count { (it.hops ?: 0) > 1 }.toString().padStart(2, '0'), Modifier.weight(1f))
+            Metric("Reachable", overview.reachable.toString().padStart(2, '0'), Modifier.weight(1f).clickable { navigate("Reachable peers") })
+            Metric("Direct", overview.direct.toString().padStart(2, '0'), Modifier.weight(1f).clickable { navigate("Direct peers") })
+            Metric("Relayed", overview.relayed.toString().padStart(2, '0'), Modifier.weight(1f).clickable { navigate("Relayed peers") })
         }
+        Text("Live connections · tap a count to inspect peers. Saved chats are not active links.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         SectionLabel("Transport status")
         RadioStatus()
         SectionLabel("Quick actions")
@@ -155,29 +159,6 @@ private val Mint = Color(0xFFE7F7F1)
             Action("Private conversation", "View the conversation interface", Icons.AutoMirrored.Filled.Chat) { navigate("Conversation") }
             Action("Groups", "Group messaging availability", Icons.Default.Groups) { navigate("Groups") }
         } else Primary("Open mesh controls") { navigate("Start Mesh") }
-    }
-}
-
-@Composable internal fun ConversationScreen(navigate: (String) -> Unit) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(12.dp)) {
-            Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Default.Route, null, modifier = Modifier.size(18.dp)); Text("Temporarily unreachable · No peer selected", style = MaterialTheme.typography.labelMedium) }
-        }
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) { Icon(Icons.AutoMirrored.Filled.Chat, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp)); Text("A new conversation", style = MaterialTheme.typography.titleMedium); Text("Messages will appear here when a verified peer is connected.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            IconButton(onClick = { navigate("Voice call") }) { Icon(Icons.Default.Call, "Voice call availability") }
-            IconButton(onClick = { navigate("Video call") }) { Icon(Icons.Default.Videocam, "Video call availability") }
-        }
-        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f)) {
-            Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { navigate("Files") }) { Icon(Icons.Default.Add, "Attachments") }
-                Text("Messaging unavailable", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                IconButton(onClick = {}, enabled = false) { Icon(Icons.Default.Mic, "Voice messages unavailable") }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -223,22 +204,5 @@ private val Mint = Color(0xFFE7F7F1)
         }
         if (peers.isEmpty()) Info("No active links. Verified direct peers appear after connection.")
         Text("Remote route paths are relay reports, not independently measured physical links.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable internal fun CallScreen(video: Boolean, back: () -> Unit) {
-    Column(Modifier.fillMaxSize().background(Color(0xFF091A30)).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(22.dp)) {
-        Spacer(Modifier.height(32.dp))
-        Text(if (video) "VIDEO CALL" else "VOICE CALL", color = Color(0xFFA5BAD9), style = MaterialTheme.typography.labelMedium)
-        Spacer(Modifier.weight(1f))
-        Box(Modifier.size(120.dp).background(Color(0xFF123F57), CircleShape), contentAlignment = Alignment.Center) { Box(Modifier.size(88.dp).background(Color(0xFFB2F1ED), CircleShape), contentAlignment = Alignment.Center) { Icon(if (video) Icons.Default.Videocam else Icons.Default.Person, null, tint = MeshNavy, modifier = Modifier.size(40.dp)) } }
-        Text("No peer selected", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("Calling is unavailable", color = Color(0xFFAFBDD1), style = MaterialTheme.typography.bodyMedium)
-        Text("No call has started. Direct calling will be available in a later milestone.", color = Color(0xFFAFBDD1), style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.weight(1f))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            listOf(Icons.Default.MicOff to "Mute", Icons.AutoMirrored.Filled.VolumeUp to "Speaker", Icons.Default.Videocam to "Camera").forEach { (icon, label) -> Column(horizontalAlignment = Alignment.CenterHorizontally) { FilledTonalIconButton(onClick = {}, enabled = false) { Icon(icon, "$label unavailable") }; Text(label, color = Color(0xFFA5BAD9), style = MaterialTheme.typography.labelSmall) } }
-        }
-        Button(onClick = back, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5167)), shape = CircleShape, modifier = Modifier.size(64.dp), contentPadding = PaddingValues(0.dp)) { Icon(Icons.Default.Close, "Close call screen", tint = Color.White) }
     }
 }

@@ -77,10 +77,12 @@ internal fun permissions(): Array<String> = buildList {
     val relayEnabled by model.relayEnabled.collectAsStateWithLifecycle()
     val routes by model.routes.collectAsStateWithLifecycle()
     val routing by model.routingMetrics.collectAsStateWithLifecycle()
+    val callPeers by model.callPeers.collectAsStateWithLifecycle()
     val scheme = if (profile.dark) darkColorScheme(primary = Color(0xFF7CB9FF), secondary = Cyan, background = Color(0xFF071226), surface = Color(0xFF101F36))
         else lightColorScheme(primary = Blue, secondary = Color(0xFF007D8C), background = Color.White, surface = Color.White, primaryContainer = Color(0xFFEDF2FF), onPrimaryContainer = Color(0xFF183565), surfaceVariant = Color(0xFFF0F4FA), onSurface = Color(0xFF10213B))
     MaterialTheme(colorScheme = scheme, shapes = Shapes(medium = RoundedCornerShape(14.dp), large = RoundedCornerShape(18.dp))) {
         val nav = rememberNavController()
+        val placeCall = rememberCallLauncher(model.calls)
         val entry by nav.currentBackStackEntryAsState()
         val route = entry?.destination?.route ?: "Splash"
         Scaffold(
@@ -99,11 +101,24 @@ internal fun permissions(): Array<String> = buildList {
                 composable("Start Mesh") { val preference by model.preference.collectAsStateWithLifecycle(); StartMeshScreen(preference, status, { model.preference.value = it }, { model.start() }, { model.stop() }, searching, relayEnabled, model::configureRelay) }
                 composable("Nearby") { DirectPeopleScreen(nearby, status, searching, model::connect, { model.selectedPeer.value = it; nav.navigate("Conversation") }, { nav.navigate("Start Mesh") }) }
                 composable("Chats") { DirectInbox(messages, status, { model.selectedPeer.value = it; nav.navigate("Conversation") }, { nav.navigate("Nearby") }) }
-                composable("Conversation") { DirectConversation(selectedPeer, messages, status, model::send, model::disconnect, model::approveRemote) }
+                composable("Conversation") { DirectConversation(selectedPeer, messages, status, model::send, model::disconnect, model::approveRemote, callPeers, placeCall) }
+                listOf("Reachable peers", "Direct peers", "Relayed peers").forEach { title -> composable(title) {
+                    val live = NetworkOverview.from((status as? MeshStatus.Active)?.peers.orEmpty()).peers.filter {
+                        when (title) { "Direct peers" -> it.hops == 1; "Relayed peers" -> (it.hops ?: 0) > 1; else -> true }
+                    }
+                    Page {
+                        Hero(title, "${live.size} live peers · updates as connections change")
+                        live.forEach { peer -> Action(peer.displayName, "${peer.hops} hops · ${if (peer.verified) "Verified" else "Verify fingerprint before chat"}", Icons.Default.People) {
+                            model.selectedPeer.value = peer.id.value; nav.navigate("Conversation")
+                        } }
+                        if (live.isEmpty()) Empty("No live peers in this category", "Start mesh on both devices, connect and compare codes. Relayed peers require a verified chain of devices. Saved conversations do not count as reachable.", Icons.Default.Hub)
+                        Primary("Find people") { nav.navigate("Nearby") }
+                    }
+                } }
                 composable("Map") { NetworkMapScreen(profile.name, (status as? MeshStatus.Active)?.peers.orEmpty(), routes) }
                 composable("Profile") { Page { Logo(80); Hero(profile.name, "This device belongs to you."); Action("Edit display name", "Saved locally on this device", Icons.Default.Edit) { nav.navigate("Edit profile") }; Text("Public-key fingerprint", fontWeight = FontWeight.Bold); Text(localId.chunked(4).joinToString(" "), style = MaterialTheme.typography.bodySmall); Info("Identity is protected by Android Keystore. QR verification is not available yet.") } }
                 composable("Edit profile") { ProfileEditor(profile.name, "Device profile", "Update your nearby display name.") { model.saveName(it) { nav.popBackStack() } } }
-                composable("Settings") { Page { Hero("Your preferences", "A quieter, more personal network."); Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text("Dark appearance", modifier = Modifier.weight(1f)); Switch(checked = profile.dark, onCheckedChange = model::dark) }; Action("Device profile", "Name and identity", Icons.Default.AccountCircle) { nav.navigate("Profile") }; Action("Permissions", "Manage wireless access", Icons.Default.Tune) { nav.navigate("Permissions") }; Action("Security & privacy", "Trust and local data", Icons.Default.Lock) { nav.navigate("Security") }; Action("Network diagnostics", "Transport and routing status", Icons.Default.Insights) { nav.navigate("Diagnostics") }; Text("Wibrio 0.4.0 • Field-test mesh", style = MaterialTheme.typography.labelMedium) } }
+                composable("Settings") { Page { Hero("Your preferences", "A quieter, more personal network."); Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text("Dark appearance", modifier = Modifier.weight(1f)); Switch(checked = profile.dark, onCheckedChange = model::dark) }; Action("Device profile", "Name and identity", Icons.Default.AccountCircle) { nav.navigate("Profile") }; Action("Permissions", "Manage wireless access", Icons.Default.Tune) { nav.navigate("Permissions") }; Action("Security & privacy", "Trust and local data", Icons.Default.Lock) { nav.navigate("Security") }; Action("Network diagnostics", "Transport and routing status", Icons.Default.Insights) { nav.navigate("Diagnostics") }; Text("Wibrio 0.5.0 • Offline direct calls", style = MaterialTheme.typography.labelMedium) } }
                 composable("Security") { Page { Hero("Trust, by design", "You decide who gets close."); Info("Direct messages use a code-verified Nearby connection and signed device identities. Relayed text uses experimental Tink HPKE encryption with origin signatures. The complete protocol has not had independent security review."); Feature(Icons.Default.Storage, "Local preferences", "Display name and theme stay on this device. Android backup is disabled."); Info("Both users must compare and accept the verification code on every connection. No peer is accepted automatically.") } }
                 composable("Diagnostics") {
                     val diagnostic by model.diagnostics.collectAsStateWithLifecycle()
@@ -137,10 +152,10 @@ internal fun permissions(): Array<String> = buildList {
                 composable("Files") { FilesScreen { nav.navigate(it) } }
                 composable("Transfers") { Page { Hero("Transfers", "Keep an eye on every byte."); Empty("No active transfers", "Progress appears only after a real transfer starts.", Icons.Default.Folder) } }
                 composable("Groups") { Page { Hero("Better together", "Private spaces for nearby communities."); Empty("Groups arrive in Phase 5", "Authenticated membership and group encryption must be implemented first.", Icons.Default.Groups) } }
-                listOf("Voice call", "Video call").forEach { title -> composable(title) { CallScreen(title == "Video call") { nav.popBackStack() } } }
             }
             verification.firstOrNull()?.let { request -> VerificationDialog(request) { model.confirm(request.endpoint, it) } }
             if (error != null && verification.isEmpty()) AlertDialog(onDismissRequest = { model.error.value = null }, title = { Text("Wibrio") }, text = { Text(error.orEmpty()) }, confirmButton = { TextButton(onClick = { model.error.value = null }) { Text("OK") } })
         }
+        LiveCallHost(model.calls, (status as? MeshStatus.Active)?.peers.orEmpty())
     }
 }

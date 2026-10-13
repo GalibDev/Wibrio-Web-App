@@ -14,7 +14,7 @@ Open this directory in Android Studio. Use JDK 17 or newer, Android SDK 36 and t
 .\gradlew.bat :app:assembleDebug
 ```
 
-Package: `com.wibrio.app`. Version 0.4.0. Minimum Android 8 / API 26; target API 36. Google Play services is required for Nearby networking.
+Package: `com.wibrio.app`. Version 0.5.0. Minimum Android 8 / API 26; target API 36. Google Play services is required for Nearby networking.
 
 ## Current capabilities
 
@@ -47,3 +47,7 @@ Follow the [physical field checklist and outdoor progression](docs/PHASE4_FIELD_
 ## Next milestone
 
 Complete the physical acceptance gate and fix device-specific failures, review security/trust revocation and storage performance, then begin authenticated groups and checksum-verified chunked direct files. Multi-hop media requires separate transport validation.
+
+## Direct calls and live dashboard (0.5.0)
+
+Reachable/Direct/Relayed tiles open live peer lists. Verified direct links take precedence over duplicate relayed identities; saved conversations never inflate counts. Conversation screens provide experimental direct voice and low bandwidth video calls over the existing signed, nonce-bound Nearby link, with explicit incoming acceptance, runtime microphone/camera permissions, mute, speaker, video pause and end controls. Both devices need 0.5.0 and must keep Wibrio visible. Video is small JPEG frames at up to 2 fps, not WebRTC-quality motion. Calls stop when the activity leaves the foreground, the direct peer disconnects, media/signalling stalls or the session limit is reached. No relayed media or background ringing is implemented. See [implementation and physical acceptance steps](docs/DIRECT_CALLS.md); actual microphone, camera, radio throughput and duplex quality remain unverified here.

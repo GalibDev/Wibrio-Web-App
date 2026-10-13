@@ -60,7 +60,7 @@ import java.util.Locale
     }
 }
 
-@Composable internal fun DirectConversation(node: String?, messages: List<DirectMessage>, status: MeshStatus, send: (String) -> Unit, disconnect: (String) -> Unit, approve: (String) -> Unit) {
+@Composable internal fun DirectConversation(node: String?, messages: List<DirectMessage>, status: MeshStatus, send: (String) -> Unit, disconnect: (String) -> Unit, approve: (String) -> Unit, callPeers: Set<String>, call: (String, Boolean) -> Unit) {
     val peer = (status as? MeshStatus.Active)?.peers?.firstOrNull { it.id.value == node }
     val history = messages.filter { it.peerId == node }
     var draft by rememberSaveable(node) { mutableStateOf("") }
@@ -74,6 +74,11 @@ import java.util.Locale
                 Text(if (peer != null) "${if (peer.hops == 1) "Direct" else "${peer.hops} hops"} · ${if (peer.verified) "Fingerprint verified" else "Unverified remote identity"}" else "Temporarily unreachable · waiting for route recovery", style = MaterialTheme.typography.bodySmall)
             }
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(onClick = { node?.let { call(it, false) } }, enabled = node in callPeers) { Icon(Icons.Default.Call, null); Text(" Voice") }
+            OutlinedButton(onClick = { node?.let { call(it, true) } }, enabled = node in callPeers) { Icon(Icons.Default.Videocam, null); Text(" Video") }
+        }
+        if (peer != null && node !in callPeers) Text("Calls need a verified direct link and Wibrio 0.5.0 on both devices.", style = MaterialTheme.typography.bodySmall)
         LazyColumn(state = scroll, modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
             items(history, key = { "${it.id}:${it.outgoing}" }) { message ->
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = if (message.outgoing) Alignment.End else Alignment.Start) {

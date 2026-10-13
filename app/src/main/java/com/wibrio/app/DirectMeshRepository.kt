@@ -21,7 +21,7 @@ data class DiscoveredPeer(val endpoint: String, val name: String, val state: Str
 data class VerificationRequest(val endpoint: String, val name: String, val digits: String)
 data class DirectMessage(val id: String, val peerId: String, val text: String, val outgoing: Boolean, val timestamp: Long, val state: DeliveryState)
 data class NetworkStats(val sent: Int = 0, val received: Int = 0, val acks: Int = 0, val failures: Int = 0, val retries: Int = 0, val lastDeliveryLatencyMs: Long? = null, val deliveryLatencyTotalMs: Long = 0, val linkReplayDrops: Int = 0, val linkRejected: Int = 0)
-private data class Session(val localNonce: String = UUID.randomUUID().toString(), var remoteNonce: String? = null, var key: String? = null, var node: String? = null, var name: String = "", var accepted: Boolean = false, var verified: Boolean = false, var window: Long = 0, var received: Int = 0, var outgoingSequence: Long = 0, val replay: ReplayWindow = ReplayWindow(), var pendingProof: ByteArray? = null, val deferred: MutableList<ByteArray> = mutableListOf())
+private data class Session(val localNonce: String = UUID.randomUUID().toString(), var remoteNonce: String? = null, var key: String? = null, var node: String? = null, var name: String = "", var accepted: Boolean = false, var verified: Boolean = false, var calls: Boolean = false, var window: Long = 0, var received: Int = 0, var outgoingSequence: Long = 0, val replay: ReplayWindow = ReplayWindow(), var pendingProof: ByteArray? = null, val deferred: MutableList<ByteArray> = mutableListOf())
 
 @Singleton class DirectMeshRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -40,6 +40,19 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
     val stats = MutableStateFlow(NetworkStats())
     val localId = MutableStateFlow("")
     val searching = MutableStateFlow(false)
+    val callPeers = MutableStateFlow<Set<String>>(emptySet())
+    val callPackets = MutableSharedFlow<Pair<String, CallPacket>>(extraBufferCapacity = 32)
+    suspend fun sendCall(node: String, packet: CallPacket) = withContext(Dispatchers.IO) {
+        val (endpoint, bytes) = mutex.withLock {
+            val link = sessions.entries.firstOrNull { it.value.verified && it.value.calls && it.value.node == node }
+                ?: error("Calling requires a verified direct peer running Wibrio 0.5.0 or newer")
+            link.key to encodePacket(link.key, JSONObject().put("type", "CALL").put("to", node)
+                .put("nonce", link.value.remoteNonce).put("call", DeviceIdentity.encode(CallWire.encode(packet))))
+        }
+        // Media must never hold the repository lock while waiting for radio completion.
+        withTimeout(3000) { transport.send(endpoint, bytes) }
+        mutex.withLock { stats.value = stats.value.copy(sent = stats.value.sent + 1) }
+    }
     private val controls = context.getSharedPreferences("wibrio_mesh_controls", Context.MODE_PRIVATE)
     val relayEnabled = MutableStateFlow(controls.getBoolean("relay", true))
     fun configureRelay(enabled: Boolean) = launch(sessionBound = false) {
@@ -60,7 +73,7 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
     suspend fun diagnosticsReport(): ByteArray = mutex.withLock {
         val peers = (status.value as? MeshStatus.Active)?.peers.orEmpty()
         DiagnosticsReport.encode(mapOf(
-            "generatedAtUtc" to java.time.Instant.now().toString(), "appVersion" to "0.4.1", "localNode" to localId.value,
+            "generatedAtUtc" to java.time.Instant.now().toString(), "appVersion" to "0.5.0", "localNode" to localId.value,
             "manufacturer" to android.os.Build.MANUFACTURER, "model" to android.os.Build.MODEL, "androidApi" to android.os.Build.VERSION.SDK_INT,
             "connectionState" to status.value.javaClass.simpleName, "foregroundSessionRequested" to running, "searching" to searching.value,
             "relayEnabled" to relayEnabled.value, "peerCount" to peers.size, "directVerifiedPeers" to sessions.values.count { it.verified },
@@ -163,11 +176,14 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
         running = false; epoch++; searching.value = false; runCatching { transport.stop() }; sessions.clear(); coordinator = null; routes.value = emptyList(); routingMetrics.value = RoutingMetrics(); availableEndpoints.clear(); nearby.value = emptyList(); verification.value = emptyList()
         messages.value = messages.value.map { if (it.state in listOf(DeliveryState.QUEUED, DeliveryState.SENDING, DeliveryState.RELAYED)) it.copy(state = DeliveryState.QUEUED) else it }
         mutableStatus.value = MeshStatus.Inactive
+        callPeers.value = emptySet()
         recorder.resetSession()
     }
     private fun publish() {
         if (!running) return
-        val peers = (coordinator?.peers().orEmpty() + sessions.values.filter { it.verified }.map { Peer(NodeId(it.node!!), it.name, true, 1) }).distinctBy { it.id }; routes.value = coordinator?.router?.routes().orEmpty(); routingMetrics.value = coordinator?.router?.metrics ?: RoutingMetrics()
+        val peers = NetworkOverview.from(sessions.values.filter { it.verified }.map { Peer(NodeId(it.node!!), it.name, true, 1) } + coordinator?.peers().orEmpty()).peers
+        callPeers.value = sessions.values.filter { it.verified && it.calls }.mapNotNull { it.node }.toSet()
+        routes.value = coordinator?.router?.routes().orEmpty(); routingMetrics.value = coordinator?.router?.metrics ?: RoutingMetrics()
         mutableStatus.value = if (peers.isEmpty() && searching.value) MeshStatus.Discovering else MeshStatus.Active(peers)
         recorder.routes(routes.value)
     }
@@ -227,7 +243,7 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
         if (!running || session?.accepted != true) { transport.disconnect(endpoint); return@launch }
         recorder.event("connection_link", "Nearby link established; checking signed identity")
         verification.value = verification.value.filterNot { it.endpoint == endpoint }
-        sendPacket(endpoint, JSONObject().put("type", "HELLO").put("nonce", session.localNonce).put("name", localName).put("key", identity.publicKey()))
+        sendPacket(endpoint, JSONObject().put("type", "HELLO").put("nonce", session.localNonce).put("name", localName).put("key", identity.publicKey()).put("calls", 1))
     }
     override fun disconnected(endpoint: String, reason: String) = launch {
         recorder.event("disconnected", reason)
@@ -243,11 +259,14 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
         publish()
     }
     private suspend fun sendPacket(endpoint: String, body: JSONObject) {
+        transport.send(endpoint, encodePacket(endpoint, body))
+        stats.value = stats.value.copy(sent = stats.value.sent + 1)
+    }
+    private suspend fun encodePacket(endpoint: String, body: JSONObject): ByteArray {
         body.put("v", 1).put("from", localId.value).put("seq", ++checkNotNull(sessions[endpoint]).outgoingSequence)
         val bytes = body.toString().toByteArray(Charsets.UTF_8)
         val envelope = JSONObject().put("body", DeviceIdentity.encode(bytes)).put("sig", identity.sign(bytes)).toString().toByteArray(Charsets.UTF_8)
-        transport.send(endpoint, envelope)
-        stats.value = stats.value.copy(sent = stats.value.sent + 1)
+        return envelope
     }
     override fun received(endpoint: String, bytes: ByteArray): Unit = packet(endpoint) {
         val session = sessions[endpoint] ?: return@packet
@@ -269,7 +288,7 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
                 session.pendingProof = bytes
                 return@packet
             }
-            if ((type == "MESH") && !session.verified) {
+            if ((type == "MESH" || type == "CALL") && !session.verified) {
                 require(session.deferred.size < 8) { "Too many packets before identity verification" }
                 session.deferred += bytes
                 return@packet
@@ -286,6 +305,7 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
                 val pinned = trust.getString(node, null); require(pinned == null || pinned == key) { "Peer key changed" }
                 require(trust.all.size < 128 || pinned != null) { "Trusted device limit reached" }
                 session.key = key; session.node = node; session.remoteNonce = nonce; session.name = body.getString("name").take(40)
+                session.calls = body.optInt("calls", 0) == 1
                 sendPacket(endpoint, JSONObject().put("type", "PROOF").put("to", node).put("nonce", nonce).put("peerNonce", session.localNonce))
                 session.pendingProof?.let { session.pendingProof = null; received(endpoint, it) }
                 return@packet
@@ -305,6 +325,12 @@ private data class Session(val localNonce: String = UUID.randomUUID().toString()
                 return@packet
             }
             require(session.verified) { "Identity handshake incomplete" }
+            if (type == "CALL") {
+                require(session.calls) { "Calling was not negotiated" }
+                val call = CallWire.decode(DeviceIdentity.decode(body.getString("call")))
+                callPackets.tryEmit(session.node!! to call)
+                return@packet
+            }
             require(type == "MESH") { "Unsupported direct protocol. All phones must use version 0.4.0." }
             coordinator?.receive(session.node!!, PacketCodec.decode(DeviceIdentity.decode(body.getString("frame"))))
         } catch (cancelled: CancellationException) { throw cancelled }

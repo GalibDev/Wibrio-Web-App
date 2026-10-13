@@ -25,9 +25,10 @@ class ProfileStore @Inject constructor(@param:ApplicationContext private val con
     suspend fun saveName(value: String) { context.preferences.edit { it[name] = value.trim().take(40) } }
     suspend fun dark(value: Boolean) { context.preferences.edit { it[dark] = value } }
 }
-@HiltViewModel class WibrioViewModel @Inject constructor(private val store: ProfileStore, private val mesh: DirectMeshRepository, @param:ApplicationContext private val context: Context) : ViewModel() {
+@HiltViewModel class WibrioViewModel @Inject constructor(private val store: ProfileStore, private val mesh: DirectMeshRepository, val calls: CallController, @param:ApplicationContext private val context: Context) : ViewModel() {
     val profile = store.profile.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Profile())
     val meshStatus = mesh.status
+    val callPeers = mesh.callPeers
     val nearby = mesh.nearby
     val verification = mesh.verification
     val messages = mesh.messages
