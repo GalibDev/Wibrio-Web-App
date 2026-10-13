@@ -2919,3 +2919,82 @@ legend {
     margin-left: 26px;
   }
 }
+.live-hero h2 {
+  white-space: pre-line;
+}
+.live-hero p {
+  max-width: 560px;
+}
+.live-hero-action {
+  margin-top: 22px;
+}
+.live-session-card {
+  margin-top: 24px;
+}
+.live-peer-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 22px 0;
+}
+.live-peer-row > div {
+  flex: 1;
+  min-width: 0;
+}
+.live-peer-row p {
+  font-size: 12px;
+  margin: 7px 0 10px;
+}
+.live-network-details {
+  max-width: 600px;
+  margin-top: 15px;
+}
+.live-transcript {
+  max-height: 450px;
+  overflow-y: auto;
+  padding: 12px 0;
+}
+@media (max-width: 767px) {
+  .live-peer-row {
+    flex-wrap: wrap;
+  }
+  .live-peer-row > .button {
+    margin-left: 58px;
+  }
+  .live-hero h2 {
+    font-size: 25px;
+  }
+  .live-hero p {
+    font-size: 12px;
+  }
+  .live-hero {
+    min-height: 270px;
+  }
+  .live-session-card {
+    margin-top: 17px;
+  }
+}
+.live-direct-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 20px 0 28px;
+  padding: 25px 15px;
+  background: var(--primary-soft);
+  border-radius: 12px;
+  color: var(--primary);
+}
+.live-direct-link span {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.live-direct-link i {
+  height: 2px;
+  flex: 1;
+  background: var(--primary);
+}

@@ -1,4 +1,8 @@
 import { expect, test } from "@playwright/test";
+test.beforeEach(async ({ page }) => {
+  await page.goto("/dashboard");
+  await page.getByRole("button", { name: "Switch to demo mode" }).click();
+});
 
 test("profile and contact search work across navigation", async ({ page }) => {
   await page.goto("/profile");

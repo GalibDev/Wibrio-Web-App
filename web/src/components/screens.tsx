@@ -8,10 +8,28 @@ import { Files } from "./screens/files";
 import { SettingsScreen } from "./screens/settings-screen";
 import { Profile } from "./screens/profile";
 import { Call } from "./screens/call";
-import { PeerChat } from './screens/peer-chat';
+import { PeerChat } from "./screens/peer-chat";
+import { useAppMode } from "@/lib/store";
+import { LiveWorkspace } from "./screens/live-workspace";
 export function Screen({ screen }: { screen: string }) {
+  const mode = useAppMode((s) => s.mode);
+  if (mode === "live" && screen === "start") return <PeerChat />;
+  if (
+    mode === "live" &&
+    [
+      "dashboard",
+      "nearby",
+      "conversations",
+      "groups",
+      "network",
+      "files",
+      "voice",
+      "video",
+    ].includes(screen)
+  )
+    return <LiveWorkspace screen={screen} />;
   switch (screen) {
-    case 'connect':
+    case "connect":
       return <PeerChat />;
     case "dashboard":
       return <Dashboard />;

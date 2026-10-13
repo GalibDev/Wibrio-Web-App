@@ -1,6 +1,16 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { ProviderId } from "./network";
+export const useAppMode = create<{
+  mode: "live" | "demo";
+  setMode: (mode: "live" | "demo") => void;
+}>()(
+  persist((set) => ({ mode: "live", setMode: (mode) => set({ mode }) }), {
+    name: "wibrio-workspace-mode",
+    storage: createJSONStorage(() => sessionStorage),
+    skipHydration: true,
+  }),
+);
 interface Preferences {
   theme: "light" | "dark";
   name: string;

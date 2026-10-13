@@ -2,6 +2,8 @@
 
 Responsive Next.js App Router interface alongside the existing Android project. Demo screens stay local. `/connect` offers a real, manually paired WebRTC text channel. There is no backend or real mesh routing.
 
+The default workspace is **Live mode**. Dashboard counters, connected people, conversation transcripts, and direct connection details subscribe to the actual WebRTC provider. An unpaired browser shows zero peers and empty states. Real group transport, voice/video, and file transfers show unsupported states. Sample profiles, seeded chats, illustrative topology, and previews are available only after explicitly choosing **Demo mode** in the header. This opt-in is stored per tab in sessionStorage and survives reload; existing provider preferences do not silently enable samples. Returning to Live mode never converts sample chats into real peers. A real session can stay open while exploring demos and is shown in a separate banner.
+
 ## Run
 
 Requires Node.js 22 or later.

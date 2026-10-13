@@ -23,7 +23,7 @@ import {
   Link2,
 } from "lucide-react";
 import { navigation } from "@/lib/data";
-import { usePreferences, useSession } from "@/lib/store";
+import { usePreferences, useSession, useAppMode } from "@/lib/store";
 import { webRtcProvider } from "@/lib/webrtc";
 import { Button } from "./ui/button";
 import { Avatar } from "./shared";
@@ -39,6 +39,8 @@ const icons = {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const realView = path === "/connect";
+  const { mode, setMode } = useAppMode();
+  const demo = mode === "demo" && !realView;
   const peerSession = useSyncExternalStore(
     webRtcProvider.subscribe,
     webRtcProvider.getSnapshot,
@@ -52,6 +54,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [workerError, setWorkerError] = useState(false);
   useEffect(() => {
     void usePreferences.persist.rehydrate();
+    void useAppMode.persist.rehydrate();
     const update = () => setOffline(!navigator.onLine);
     update();
     window.addEventListener("online", update);
@@ -94,7 +97,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </span>
           <div>
             <strong>My workspace</strong>
-            <small>Personal demo space</small>
+            <small>
+              {demo ? "Personal demo space" : "Live browser workspace"}
+            </small>
           </div>
           <ChevronDown size={15} />
         </div>
@@ -116,7 +121,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <Icon size={20} />
                 {item.label}
-                {item.icon === "chat" && <span className="nav-count">6</span>}
+                {item.icon === "chat" && (
+                  <span className="nav-count">
+                    {demo ? "6" : peerSession.state === "connected" ? "1" : "0"}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -135,11 +144,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="connection-card">
             <span className="status-dot" />
             <strong>
-              {active ? "Demo session active" : "Your world, connected."}
+              {demo
+                ? active
+                  ? "Demo session active"
+                  : "Explore sample connections"
+                : peerSession.state === "connected"
+                  ? "Real peer connected"
+                  : "No peer connected"}
             </strong>
-            <p>A little closer, even when you’re offline.</p>
+            <p>
+              {demo
+                ? "Sample activity stays on this device."
+                : "Manual WebRTC pairing. No wireless discovery."}
+            </p>
             <Link href="/start">
-              {active ? "Manage demo session" : "Start a demo mesh"}
+              {demo
+                ? active
+                  ? "Manage demo session"
+                  : "Start a demo mesh"
+                : peerSession.state === "connected"
+                  ? "Manage live connection"
+                  : "Pair a browser"}
               <ArrowUpRight size={16} />
             </Link>
           </div>
@@ -190,10 +215,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </strong>
           </div>
           <div className="topbar-actions">
-            <span className="demo-chip">
-              {realView ? <Link2 size={14} /> : <FlaskConical size={14} />}
-              {realView ? "Real WebRTC" : "Demo mode"}
-            </span>
+            <button
+              className="demo-chip"
+              aria-label={
+                mode === "live" ? "Switch to demo mode" : "Switch to live mode"
+              }
+              title="Switch between real activity and sample data"
+              onClick={() => setMode(mode === "live" ? "demo" : "live")}
+            >
+              {demo ? <FlaskConical size={14} /> : <Link2 size={14} />}
+              {demo ? "Demo mode" : "Live mode"}
+            </button>
             <span className="topbar-divider" />
             <Button
               variant="ghost"
@@ -221,8 +253,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <div className="notification-popover">
                   <strong>You’re all caught up</strong>
                   <p>
-                    Demo activity stays local. No network notifications are
-                    being received.
+                    {demo
+                      ? "Demo activity stays local."
+                      : "Live messages appear in your peer session."}{" "}
+                    Background notifications are not implemented.
                   </p>
                 </div>
               )}
@@ -232,7 +266,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           </div>
         </header>
-        {!realView && peerSession.state === "connected" && (
+        {demo && peerSession.state === "connected" && (
           <div className="live-session-banner">
             <Link2 size={16} />
             <span>
@@ -247,8 +281,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {offline && (
           <div className="offline-banner" role="status">
             <WifiOff size={16} />
-            Browser offline · Local demo chats remain available. Previously
-            visited pages are cached.
+            Browser offline · Previously visited pages are cached.{" "}
+            {demo
+              ? "Local demo chats remain available."
+              : "Peer connectivity is reported by the WebRTC provider."}
           </div>
         )}
         {workerError && (
@@ -266,9 +302,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             Designed for connection. Built for possibility.
           </span>
           <span>
-            {realView
-              ? "Phase 2 · Manual peer pairing"
-              : "Demo screens · Local demonstration"}
+            {demo
+              ? "Demo screens · Local demonstration"
+              : "Live workspace · WebRTC text"}
           </span>
         </footer>
       </div>

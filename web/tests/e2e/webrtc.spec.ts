@@ -1,4 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
+async function navigate(page: Page, name: string) {
+  const menu = page.getByRole("button", { name: "Open navigation" });
+  if (await menu.isVisible()) await menu.click();
+  await page
+    .getByRole("navigation", { name: "Main navigation", exact: true })
+    .getByRole("link", { name: new RegExp(`^${name}`) })
+    .click();
+}
 
 async function pair(a: Page, b: Page) {
   await Promise.all([a.goto("/connect"), b.goto("/connect")]);
@@ -67,13 +75,31 @@ test("real data channels exchange acknowledged text, survive client navigation, 
     }),
   ).toBeVisible();
   // Use client-side navigation rather than reload; the in-memory provider stays alive.
+  await navigate(page, "Overview");
+  await expect(page.getByTestId("live-connected-peers")).toHaveText("1");
+  await expect(page.getByTestId("live-received-messages")).toHaveText("1");
+  await expect(page.getByTestId("live-peer-acknowledgements")).toHaveText("1");
+  await expect(page.getByText("Alex Morgan", { exact: true })).toHaveCount(0);
+  await navigate(page, "Network map");
+  await expect(
+    page.getByText("Direct connection details", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Confirmed on both browsers", { exact: true }),
+  ).toBeVisible();
+  await navigate(page, "Nearby people");
+  await expect(
+    page.getByRole("heading", { name: "Paired browser", exact: true }),
+  ).toBeVisible();
   const menu = page.getByRole("button", { name: "Open navigation" });
   if (await menu.isVisible()) await menu.click();
   await page
     .getByRole("navigation", { name: "Main navigation", exact: true })
     .getByRole("link", { name: "Conversations" })
     .click();
-  await page.getByRole("link", { name: /Pair a real browser/ }).click();
+  await page
+    .getByRole("link", { name: "Open conversation", exact: true })
+    .click();
   await expect(page.getByTestId("connection-state")).toHaveText("connected");
   await expect(
     page.getByText("A real message from browser A", { exact: true }),
@@ -84,6 +110,13 @@ test("real data channels exchange acknowledged text, survive client navigation, 
     { timeout: 15000 },
   );
   await expect(page.getByLabel("Live message", { exact: true })).toBeDisabled();
+  await navigate(page, "Overview");
+  await expect(page.getByTestId("live-connected-peers")).toHaveText("0");
+  await navigate(page, "Conversations");
+  await expect(
+    page.getByText("A real message from browser A", { exact: true }),
+  ).toBeVisible();
+  await navigate(page, "Live peer chat");
   await expect(
     page.getByRole("button", { name: "Create offer", exact: true }),
   ).toBeEnabled();

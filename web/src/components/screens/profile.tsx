@@ -42,7 +42,7 @@ export function Profile() {
             large
           />
           <h2>{name}</h2>
-          <Badge>Local demo identity</Badge>
+          <Badge>Local browser profile</Badge>
           <p>No account. Just a space that’s yours.</p>
           <span className="profile-device">
             <Monitor size={18} />
@@ -72,7 +72,9 @@ export function Profile() {
                 value={draft ?? name}
                 onChange={(e) => setDraft(e.target.value)}
               />
-              <small>Visible only in this local demonstration.</small>
+              <small>
+                Stored locally on this browser. Not a verified peer identity.
+              </small>
             </label>
             <Button type="submit">
               Save changes
@@ -85,7 +87,7 @@ export function Profile() {
             </span>
             <h3>Device identity</h3>
             <p>
-              A locally generated demo identifier. It is not a cryptographic
+              A locally generated browser identifier. It is not a cryptographic
               identity or verified fingerprint.
             </p>
             <code>{deviceId || "Loading local identifier…"}</code>
@@ -95,7 +97,7 @@ export function Profile() {
               onClick={async () => {
                 try {
                   await navigator.clipboard.writeText(deviceId);
-                  setNotice("Demo device identifier copied.");
+                  setNotice("Browser identifier copied.");
                 } catch {
                   setNotice(
                     "Clipboard unavailable. Select the identifier to copy it.",

@@ -19,7 +19,17 @@ import { people } from "@/lib/data";
 import { readMessages, saveMessage, type Message } from "@/lib/db";
 import { Avatar, Badge } from "./shared";
 import { Button } from "./ui/button";
+import { useAppMode } from "@/lib/store";
+import { LiveWorkspace } from "./screens/live-workspace";
 export function ChatScreen({ id }: { id: string }) {
+  const mode = useAppMode((s) => s.mode);
+  return mode === "demo" ? (
+    <DemoChat id={id} />
+  ) : (
+    <LiveWorkspace screen="conversations" />
+  );
+}
+function DemoChat({ id }: { id: string }) {
   const person = people.find((p) => p.id === id)!;
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
