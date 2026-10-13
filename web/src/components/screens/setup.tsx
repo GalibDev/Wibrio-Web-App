@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowRight, Radio, ShieldCheck, Wifi, Bluetooth } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -12,6 +13,7 @@ import {
 import { providers, type ProviderId } from "@/lib/network";
 import { usePreferences, useSession } from "@/lib/store";
 export function Setup() {
+  const router = useRouter();
   const { provider, setProvider } = usePreferences();
   const { active, setActive } = useSession();
   const [error, setError] = useState("");
@@ -21,6 +23,10 @@ export function Setup() {
     setBusy(true);
     try {
       await providers[provider].start();
+      if (provider === "webrtc") {
+        router.push("/connect");
+        return;
+      }
       setActive(true);
     } catch (e) {
       setError(
@@ -43,8 +49,8 @@ export function Setup() {
           </span>
           <h2>Let’s bring your world closer.</h2>
           <p>
-            Phase 1 offers a local demonstration. No wireless devices are
-            discovered or connected.
+            Choose local demo mode or pair two browsers for real WebRTC text
+            chat. No wireless discovery or mesh routing is performed.
           </p>
           <fieldset>
             <legend>Connection provider</legend>
@@ -71,7 +77,7 @@ export function Setup() {
                       ? "Available · Local simulation"
                       : id === "native"
                         ? "Requires native companion"
-                        : "Integration not yet available"}
+                        : "Manual pairing · Real text channel"}
                   </small>
                 </div>
                 {id === "demo" && <Badge>Phase 1</Badge>}
@@ -127,7 +133,7 @@ export function Setup() {
                         ? "Available"
                         : c.availability === "native-required"
                           ? "Native companion required"
-                          : "Unsupported in Phase 1"}
+                          : "Unsupported"}
                     </Badge>
                     <p>{c.description}</p>
                   </div>
@@ -147,7 +153,7 @@ export function Setup() {
           </div>
         </div>
       </div>
-      <SimulationNote />
+      {provider === "demo" && <SimulationNote />}
     </>
   );
 }

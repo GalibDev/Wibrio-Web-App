@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -20,9 +20,11 @@ import {
   Bell,
   Menu,
   FlaskConical,
+  Link2,
 } from "lucide-react";
 import { navigation } from "@/lib/data";
 import { usePreferences, useSession } from "@/lib/store";
+import { webRtcProvider } from "@/lib/webrtc";
 import { Button } from "./ui/button";
 import { Avatar } from "./shared";
 const icons = {
@@ -36,6 +38,12 @@ const icons = {
 };
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  const realView = path === "/connect";
+  const peerSession = useSyncExternalStore(
+    webRtcProvider.subscribe,
+    webRtcProvider.getSnapshot,
+    webRtcProvider.getServerSnapshot,
+  );
   const { theme, setTheme, name } = usePreferences();
   const active = useSession((s) => s.active);
   const [offline, setOffline] = useState(false);
@@ -112,6 +120,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+          <Link
+            href="/connect"
+            onClick={() => setMenu(false)}
+            className={`nav-link ${realView ? "selected" : ""}`}
+            aria-current={realView ? "page" : undefined}
+          >
+            <Link2 size={20} />
+            Live peer chat
+            <ArrowUpRight size={15} />
+          </Link>
         </nav>
         <div className="sidebar-bottom">
           <div className="connection-card">
@@ -168,13 +186,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       : path === "/video"
                         ? "Video call"
                         : navigation.find((n) => n.path === path)?.label ||
-                          "Wibrio"}
+                          (realView ? "Live peer chat" : "Wibrio")}
             </strong>
           </div>
           <div className="topbar-actions">
             <span className="demo-chip">
-              <FlaskConical size={14} />
-              Demo mode
+              {realView ? <Link2 size={14} /> : <FlaskConical size={14} />}
+              {realView ? "Real WebRTC" : "Demo mode"}
             </span>
             <span className="topbar-divider" />
             <Button
@@ -214,6 +232,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           </div>
         </header>
+        {!realView && peerSession.state === "connected" && (
+          <div className="live-session-banner">
+            <Link2 size={16} />
+            <span>
+              A real WebRTC peer session is open separately from these demo
+              screens.
+            </span>
+            <Link href="/connect">
+              Return to live chat <ArrowUpRight size={14} />
+            </Link>
+          </div>
+        )}
         {offline && (
           <div className="offline-banner" role="status">
             <WifiOff size={16} />
@@ -235,7 +265,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="status-dot" />
             Designed for connection. Built for possibility.
           </span>
-          <span>Phase 1 · Local demonstration</span>
+          <span>
+            {realView
+              ? "Phase 2 · Manual peer pairing"
+              : "Demo screens · Local demonstration"}
+          </span>
         </footer>
       </div>
       <nav className="bottom-nav" aria-label="Mobile navigation">

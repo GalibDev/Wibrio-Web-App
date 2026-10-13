@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { providers } from "../src/lib/network";
 describe("honest provider capabilities", () => {
-  it("allows only a simulated provider to start", async () => {
+  it("supports demo and rejects unavailable real transports in Node", async () => {
     await expect(providers.demo.start()).resolves.toBeUndefined();
     expect(providers.demo.simulated).toBe(true);
-    await expect(providers.webrtc.start()).rejects.toThrow("not implemented");
+    await expect(providers.webrtc.start()).rejects.toThrow(
+      "HTTPS or localhost",
+    );
     await expect(providers.native.start()).rejects.toThrow(
       "No native companion",
     );

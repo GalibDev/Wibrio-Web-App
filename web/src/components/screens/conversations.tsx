@@ -30,6 +30,14 @@ export function Conversations({ groups = false }: { groups?: boolean }) {
           </Button>
         }
       />
+      {!groups && (
+        <div className="info-callout live-chat-link">
+          <Link href="/connect">
+            Pair a real browser for live text chat <ArrowUpRight size={16} />
+          </Link>
+          <p>The sample conversations below remain local demonstrations.</p>
+        </div>
+      )}
       <Card className="inbox">
         <div className="inbox-top">
           <div>

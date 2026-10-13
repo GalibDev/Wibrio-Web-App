@@ -39,32 +39,8 @@ export class DemoNetworkProvider implements NetworkProvider {
   async start() {}
   async stop() {}
 }
-export class WebRtcNetworkProvider implements NetworkProvider {
-  readonly id = "webrtc";
-  readonly label = "WebRTC";
-  readonly simulated = false;
-  capabilities(): Capability[] {
-    return [
-      {
-        name: "WebRTC transport",
-        availability: "unsupported",
-        description:
-          "Integration pending. Requires signaling and explicit peer pairing.",
-      },
-      {
-        name: "Wi-Fi Direct",
-        availability: "native-required",
-        description: "Not accessible through WebRTC.",
-      },
-    ];
-  }
-  async start(): Promise<void> {
-    throw new Error(
-      "WebRTC provider is not implemented in Phase 1. Choose Demo network.",
-    );
-  }
-  async stop() {}
-}
+export { WebRtcNetworkProvider } from "./webrtc";
+import { webRtcProvider } from "./webrtc";
 export class NativeCompanionProvider implements NetworkProvider {
   readonly id = "native";
   readonly label = "Native companion";
@@ -86,6 +62,6 @@ export class NativeCompanionProvider implements NetworkProvider {
 }
 export const providers: Record<ProviderId, NetworkProvider> = {
   demo: new DemoNetworkProvider(),
-  webrtc: new WebRtcNetworkProvider(),
+  webrtc: webRtcProvider,
   native: new NativeCompanionProvider(),
 };

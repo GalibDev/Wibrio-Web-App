@@ -19,7 +19,10 @@ test("file previews remain local and chat deletion requires confirmation", async
 }) => {
   await page.goto("/files");
   const chooserPromise = page.waitForEvent("filechooser");
-  await page.locator('button').filter({ hasText: 'Choose local files' }).click();
+  await page
+    .locator("button")
+    .filter({ hasText: "Choose local files" })
+    .click();
   const chooser = await chooserPromise;
   await chooser.setFiles({
     name: "hello.txt",
@@ -67,6 +70,7 @@ test("screens render without horizontal overflow or client errors", async ({
     "network",
     "settings",
     "profile",
+    "connect",
   ]) {
     await page.goto(`/${route}`);
     await expect(
@@ -108,10 +112,10 @@ test("theme persists and unsupported providers never start", async ({
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.goto("/start");
-  await page.getByRole("radio", { name: /WebRTC/ }).check();
+  await page.getByRole("radio", { name: /Native companion/ }).check();
   await page.getByRole("button", { name: "Start selected provider" }).click();
   await expect(page.locator('main [role="alert"]')).toContainText(
-    "not implemented",
+    "No native companion",
   );
   await page.getByRole("radio", { name: /Demo network/ }).check();
   await page.getByRole("button", { name: "Start selected provider" }).click();

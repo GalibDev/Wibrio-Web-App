@@ -124,9 +124,9 @@ export function SettingsScreen() {
             link="Manage"
           />
           <p>
-            Demo mode is the available provider in Phase 1. Wi-Fi Direct and
-            Bluetooth mesh require a native companion. WebRTC transport is not
-            integrated.
+            Demo mode keeps sample chats local. WebRTC offers real text chat through
+            explicit manual pairing. Wi-Fi Direct and Bluetooth mesh still require
+            a native companion. Voice, video, and file transfers remain previews.
           </p>
         </Card>
       </div>

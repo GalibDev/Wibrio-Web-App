@@ -108,7 +108,7 @@ export function Dashboard() {
             <strong>No, after caching</strong>
           </div>
           <div className="session-line">
-            <span>Real peers connected</span>
+            <span>Demo transport peers</span>
             <strong>0 devices</strong>
           </div>
           <Link href="/network" className="text-link">

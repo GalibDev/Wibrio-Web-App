@@ -12,6 +12,7 @@ const screens = [
   "network",
   "settings",
   "profile",
+  "connect",
 ];
 export function generateStaticParams() {
   return screens.map((screen) => ({ screen }));

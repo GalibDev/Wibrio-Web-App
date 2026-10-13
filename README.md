@@ -1,8 +1,8 @@
 # Wibrio
 
-## Web app · Phase 1
+## Web app · Phase 2 text transport
 
-The responsive Next.js web interface lives in [`web/`](web/README.md). Run `cd web`, `npm ci`, then `npm run dev`. It offers explicitly labeled local demo networking, IndexedDB chats, all required screens, and light/dark themes. It does not use the native Android networking engine below.
+The responsive Next.js web interface lives in [`web/`](web/README.md). Run `cd web`, `npm ci`, then `npm run dev`. It offers explicitly labeled local demos, IndexedDB demo chats, all required screens, and light/dark themes. `/connect` adds manually paired real WebRTC text chat with certificate comparison and peer acknowledgements. No backend, STUN/TURN, or browser mesh routing is implemented. It does not use the native Android networking engine below.
 
 Native Android offline mesh communication project. **Phase 4 reliability hardening implemented; physical-device acceptance pending.**
 

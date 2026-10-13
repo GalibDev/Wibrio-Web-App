@@ -8,8 +8,11 @@ import { Files } from "./screens/files";
 import { SettingsScreen } from "./screens/settings-screen";
 import { Profile } from "./screens/profile";
 import { Call } from "./screens/call";
+import { PeerChat } from './screens/peer-chat';
 export function Screen({ screen }: { screen: string }) {
   switch (screen) {
+    case 'connect':
+      return <PeerChat />;
     case "dashboard":
       return <Dashboard />;
     case "start":
